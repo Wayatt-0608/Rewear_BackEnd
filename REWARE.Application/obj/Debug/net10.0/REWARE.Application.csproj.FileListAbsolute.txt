@@ -1,0 +1,15 @@
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\bin\Debug\net10.0\REWARE.Application.deps.json
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\bin\Debug\net10.0\REWARE.Application.dll
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\bin\Debug\net10.0\REWARE.Application.pdb
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\bin\Debug\net10.0\REWEAR.Domain.dll
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\bin\Debug\net10.0\REWEAR.Domain.pdb
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.Application.csproj.AssemblyReference.cache
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.Application.GeneratedMSBuildEditorConfig.editorconfig
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.Application.AssemblyInfoInputs.cache
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.Application.AssemblyInfo.cs
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.Application.csproj.CoreCompileInputs.cache
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.A.3F54C3C7.Up2Date
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.Application.dll
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\refint\REWARE.Application.dll
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\REWARE.Application.pdb
+D:\EXE212\REWEAR_BackEnd\REWARE.Application\obj\Debug\net10.0\ref\REWARE.Application.dll

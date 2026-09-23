@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dgSpecHash": "7EPiI4HfsXg=",
+  "success": true,
+  "projectFilePath": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\phanq\\.nuget\\packages\\dnsclient\\1.6.1\\dnsclient.1.6.1.nupkg.sha512",
+    "C:\\Users\\phanq\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\2.0.0\\microsoft.extensions.logging.abstractions.2.0.0.nupkg.sha512",
+    "C:\\Users\\phanq\\.nuget\\packages\\mongodb.bson\\3.11.1\\mongodb.bson.3.11.1.nupkg.sha512",
+    "C:\\Users\\phanq\\.nuget\\packages\\mongodb.driver\\3.11.1\\mongodb.driver.3.11.1.nupkg.sha512",
+    "C:\\Users\\phanq\\.nuget\\packages\\sharpcompress\\0.48.1\\sharpcompress.0.48.1.nupkg.sha512",
+    "C:\\Users\\phanq\\.nuget\\packages\\snappier\\1.3.1\\snappier.1.3.1.nupkg.sha512",
+    "C:\\Users\\phanq\\.nuget\\packages\\zstdsharp.port\\0.7.3\\zstdsharp.port.0.7.3.nupkg.sha512"
+  ],
+  "logs": []
+}
