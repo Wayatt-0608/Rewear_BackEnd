@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: rewear_mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: rewear_admin
+      MONGO_INITDB_ROOT_PASSWORD: rewear_password123
+      MONGO_INITDB_DATABASE: rewear_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  api:
+    build:
+      context: .
+      dockerfile: REWARE.API/Dockerfile
+    container_name: rewear_api
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      MongoDbSettings__ConnectionString: "mongodb://rewear_admin:rewear_password123@mongodb:27017"
+      MongoDbSettings__DatabaseName: "rewear_db"
+    ports:
+      - "5000:8080"
+    depends_on:
+      - mongodb
+
+volumes:
+  mongodb_data:
+    driver: local
