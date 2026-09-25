@@ -1,4 +1,12 @@
 using REWEAR.Infrastructure.Persistence;
+using REWEAR.Infrastructure.Repositories;
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+
+// Force TLS 1.2 for MongoDB connection
+ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+ServicePointManager.ServerCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,13 +23,26 @@ var mongoSettings = new MongoDbSettings
 builder.Services.AddSingleton(mongoSettings);
 builder.Services.AddSingleton<MongoDbContext>();
 
+// Đăng ký Repositories
+builder.Services.AddScoped<REWARE.Application.Interfaces.IUserRepository, UserRepository>();
+
+// Đăng ký Services
+builder.Services.AddScoped<REWARE.Application.Interfaces.IAuthService, REWARE.Application.Services.AuthService>();
+builder.Services.AddScoped<REWARE.Application.Interfaces.IEmailService, REWEAR.Infrastructure.Services.EmailService>();
+
 builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+
+// ====== SWAGGER CONFIG ======
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+// ====== END SWAGGER ======
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    app.UseSwagger();
+    app.UseSwaggerUI();
     app.MapOpenApi();
 }
 

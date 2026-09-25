@@ -1,18 +1,42 @@
 {
   "Version": 1,
-  "WorkspaceRootPath": "D:\\EXE212\\REWEAR_BackEnd\\",
+  "WorkspaceRootPath": "D:\\EXE212\\Rewear_BackEnd\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|d:\\exe212\\rewear_backend\\rewear.infrastructure\\class1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|solutionrelative:rewear.infrastructure\\class1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|d:\\exe212\\rewear_backend\\rewear.infrastructure\\repositories\\userrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|solutionrelative:rewear.infrastructure\\repositories\\userrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{D39123CA-7B00-4A05-BA4D-546223FE2E4F}|REWARE.Application\\REWARE.Application.csproj|d:\\exe212\\rewear_backend\\reware.application\\class1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{D39123CA-7B00-4A05-BA4D-546223FE2E4F}|REWARE.Application\\REWARE.Application.csproj|solutionrelative:reware.application\\class1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|d:\\exe212\\rewear_backend\\rewear.infrastructure\\persistence\\mongodbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|solutionrelative:rewear.infrastructure\\persistence\\mongodbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{CC6056F8-4C76-4813-86A2-B928F9E89C02}|REWEAR.Domain\\REWEAR.Domain.csproj|d:\\exe212\\rewear_backend\\rewear.domain\\class1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{CC6056F8-4C76-4813-86A2-B928F9E89C02}|REWEAR.Domain\\REWEAR.Domain.csproj|solutionrelative:rewear.domain\\class1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{41BF58B8-7504-46D1-991E-9B7C921C770B}|REWARE.API\\REWARE.API.csproj|d:\\exe212\\rewear_backend\\reware.api\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{41BF58B8-7504-46D1-991E-9B7C921C770B}|REWARE.API\\REWARE.API.csproj|solutionrelative:reware.api\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{41BF58B8-7504-46D1-991E-9B7C921C770B}|REWARE.API\\REWARE.API.csproj|d:\\exe212\\rewear_backend\\reware.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{41BF58B8-7504-46D1-991E-9B7C921C770B}|REWARE.API\\REWARE.API.csproj|solutionrelative:reware.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|d:\\exe212\\rewear_backend\\rewear.infrastructure\\persistence\\mongodbsettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|solutionrelative:rewear.infrastructure\\persistence\\mongodbsettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{CC6056F8-4C76-4813-86A2-B928F9E89C02}|REWEAR.Domain\\REWEAR.Domain.csproj|d:\\exe212\\rewear_backend\\rewear.domain\\rewear.domain.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
+      "RelativeMoniker": "D:0:0:{CC6056F8-4C76-4813-86A2-B928F9E89C02}|REWEAR.Domain\\REWEAR.Domain.csproj|solutionrelative:rewear.domain\\rewear.domain.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|d:\\exe212\\rewear_backend\\rewear.infrastructure\\rewear.infrastructure.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
+      "RelativeMoniker": "D:0:0:{0D5811EA-570B-41B6-8598-2A6F8BB4C391}|REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj|solutionrelative:rewear.infrastructure\\rewear.infrastructure.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{41BF58B8-7504-46D1-991E-9B7C921C770B}|REWARE.API\\REWARE.API.csproj|d:\\exe212\\rewear_backend\\reware.api\\reware.api.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
+      "RelativeMoniker": "D:0:0:{41BF58B8-7504-46D1-991E-9B7C921C770B}|REWARE.API\\REWARE.API.csproj|solutionrelative:reware.api\\reware.api.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{D39123CA-7B00-4A05-BA4D-546223FE2E4F}|REWARE.Application\\REWARE.Application.csproj|d:\\exe212\\rewear_backend\\reware.application\\reware.application.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
+      "RelativeMoniker": "D:0:0:{D39123CA-7B00-4A05-BA4D-546223FE2E4F}|REWARE.Application\\REWARE.Application.csproj|solutionrelative:reware.application\\reware.application.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
     }
   ],
   "DocumentGroupContainers": [
@@ -22,46 +46,116 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 0,
+          "SelectedChildIndex": 3,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "Class1.cs",
-              "DocumentMoniker": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Infrastructure\\Class1.cs",
-              "RelativeDocumentMoniker": "REWEAR.Infrastructure\\Class1.cs",
-              "ToolTip": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Infrastructure\\Class1.cs",
-              "RelativeToolTip": "REWEAR.Infrastructure\\Class1.cs",
+              "DocumentIndex": 5,
+              "Title": "REWEAR.Domain.csproj",
+              "DocumentMoniker": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Domain\\REWEAR.Domain.csproj",
+              "RelativeDocumentMoniker": "REWEAR.Domain\\REWEAR.Domain.csproj",
+              "ToolTip": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Domain\\REWEAR.Domain.csproj",
+              "RelativeToolTip": "REWEAR.Domain\\REWEAR.Domain.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-09-09T05:55:11.372Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "REWEAR.Infrastructure.csproj",
+              "DocumentMoniker": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj",
+              "RelativeDocumentMoniker": "REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj",
+              "ToolTip": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj",
+              "RelativeToolTip": "REWEAR.Infrastructure\\REWEAR.Infrastructure.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-09-09T03:08:17.053Z",
-              "EditorCaption": ""
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-09-09T05:55:09.468Z"
             },
             {
               "$type": "Document",
               "DocumentIndex": 1,
-              "Title": "Class1.cs",
-              "DocumentMoniker": "D:\\EXE212\\REWEAR_BackEnd\\REWARE.Application\\Class1.cs",
-              "RelativeDocumentMoniker": "REWARE.Application\\Class1.cs",
-              "ToolTip": "D:\\EXE212\\REWEAR_BackEnd\\REWARE.Application\\Class1.cs",
-              "RelativeToolTip": "REWARE.Application\\Class1.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Title": "MongoDbContext.cs",
+              "DocumentMoniker": "D:\\EXE212\\Rewear_BackEnd\\REWEAR.Infrastructure\\Persistence\\MongoDbContext.cs",
+              "RelativeDocumentMoniker": "REWEAR.Infrastructure\\Persistence\\MongoDbContext.cs",
+              "ToolTip": "D:\\EXE212\\Rewear_BackEnd\\REWEAR.Infrastructure\\Persistence\\MongoDbContext.cs",
+              "RelativeToolTip": "REWEAR.Infrastructure\\Persistence\\MongoDbContext.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-09-09T03:07:13.009Z",
+              "WhenOpened": "2026-09-09T05:55:11.527Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "UserRepository.cs",
+              "DocumentMoniker": "D:\\EXE212\\Rewear_BackEnd\\REWEAR.Infrastructure\\Repositories\\UserRepository.cs",
+              "RelativeDocumentMoniker": "REWEAR.Infrastructure\\Repositories\\UserRepository.cs",
+              "ToolTip": "D:\\EXE212\\Rewear_BackEnd\\REWEAR.Infrastructure\\Repositories\\UserRepository.cs",
+              "RelativeToolTip": "REWEAR.Infrastructure\\Repositories\\UserRepository.cs",
+              "ViewState": "AgIAABcAAAAAAAAAAAAUwBoAAAAIAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-23T17:41:59.627Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
               "DocumentIndex": 2,
-              "Title": "Class1.cs",
-              "DocumentMoniker": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Domain\\Class1.cs",
-              "RelativeDocumentMoniker": "REWEAR.Domain\\Class1.cs",
-              "ToolTip": "D:\\EXE212\\REWEAR_BackEnd\\REWEAR.Domain\\Class1.cs",
-              "RelativeToolTip": "REWEAR.Domain\\Class1.cs",
+              "Title": "appsettings.Development.json",
+              "DocumentMoniker": "D:\\EXE212\\Rewear_BackEnd\\REWARE.API\\appsettings.Development.json",
+              "RelativeDocumentMoniker": "REWARE.API\\appsettings.Development.json",
+              "ToolTip": "D:\\EXE212\\Rewear_BackEnd\\REWARE.API\\appsettings.Development.json",
+              "RelativeToolTip": "REWARE.API\\appsettings.Development.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-09-23T15:57:45.283Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "D:\\EXE212\\Rewear_BackEnd\\REWARE.API\\appsettings.json",
+              "RelativeDocumentMoniker": "REWARE.API\\appsettings.json",
+              "ToolTip": "D:\\EXE212\\Rewear_BackEnd\\REWARE.API\\appsettings.json",
+              "RelativeToolTip": "REWARE.API\\appsettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-09-09T05:55:33.385Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "MongoDbSettings.cs",
+              "DocumentMoniker": "D:\\EXE212\\Rewear_BackEnd\\REWEAR.Infrastructure\\Persistence\\MongoDbSettings.cs",
+              "RelativeDocumentMoniker": "REWEAR.Infrastructure\\Persistence\\MongoDbSettings.cs",
+              "ToolTip": "D:\\EXE212\\Rewear_BackEnd\\REWEAR.Infrastructure\\Persistence\\MongoDbSettings.cs",
+              "RelativeToolTip": "REWEAR.Infrastructure\\Persistence\\MongoDbSettings.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-09-09T03:05:42.408Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-09-09T05:55:12.443Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "REWARE.API.csproj",
+              "DocumentMoniker": "D:\\EXE212\\REWEAR_BackEnd\\REWARE.API\\REWARE.API.csproj",
+              "RelativeDocumentMoniker": "REWARE.API\\REWARE.API.csproj",
+              "ToolTip": "D:\\EXE212\\REWEAR_BackEnd\\REWARE.API\\REWARE.API.csproj",
+              "RelativeToolTip": "REWARE.API\\REWARE.API.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-09-09T05:55:11.411Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "REWARE.Application.csproj",
+              "DocumentMoniker": "D:\\EXE212\\REWEAR_BackEnd\\REWARE.Application\\REWARE.Application.csproj",
+              "RelativeDocumentMoniker": "REWARE.Application\\REWARE.Application.csproj",
+              "ToolTip": "D:\\EXE212\\REWEAR_BackEnd\\REWARE.Application\\REWARE.Application.csproj",
+              "RelativeToolTip": "REWARE.Application\\REWARE.Application.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-09-09T05:55:11.327Z"
             }
           ]
         }

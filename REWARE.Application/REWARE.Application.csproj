@@ -10,4 +10,9 @@
     <ProjectReference Include="..\REWEAR.Domain\REWEAR.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <PackageReference Include="MongoDB.Driver" Version="3.12.0" />
+  </ItemGroup>
+
 </Project>
