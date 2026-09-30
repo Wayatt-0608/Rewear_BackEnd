@@ -20,4 +20,10 @@ public class MongoDbContext
 
     public IMongoCollection<User> Users =>
         _database.GetCollection<User>("Users");
+
+    public IMongoCollection<Brand> Brands =>
+        _database.GetCollection<Brand>("Brands");
+
+    public IMongoCollection<Category> Categories =>
+        _database.GetCollection<Category>("Categories");
 }
