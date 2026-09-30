@@ -1,4 +1,4 @@
-namespace REWARE.Application.DTOs;
+namespace REWEAR.Application.DTOs;
 
 /// <summary>
 /// DTO cho yêu cầu đăng ký.
@@ -42,4 +42,5 @@ public class AuthResponse
     public string? Email { get; set; }
     public string? FullName { get; set; }
     public bool? RequiresVerification { get; set; }
+    public string? Token { get; set; }  // JWT Token
 }

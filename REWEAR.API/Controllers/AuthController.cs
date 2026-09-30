@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
-using REWARE.Application.DTOs;
-using REWARE.Application.Interfaces;
+using REWEAR.Application.DTOs;
+using REWEAR.Application.Interfaces;
 
-namespace REWARE.API.Controllers;
+namespace REWEAR.API.Controllers;
 
 /// <summary>
 /// Controller xử lý Authentication (Đăng ký, Đăng nhập, Xác thực OTP).

@@ -1,6 +1,6 @@
 using REWEAR.Domain.Entities;
 
-namespace REWARE.Application.Interfaces;
+namespace REWEAR.Application.Interfaces;
 
 /// <summary>
 /// Interface cho User Repository.

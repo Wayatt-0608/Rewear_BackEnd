@@ -1,4 +1,4 @@
-﻿using MongoDB.Driver;
+using MongoDB.Driver;
 using REWEAR.Domain.Entities;
 using REWEAR.Infrastructure.Persistence;
 

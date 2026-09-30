@@ -1,5 +1,5 @@
 using MongoDB.Driver;
-using REWARE.Application.Interfaces;
+using REWEAR.Application.Interfaces;
 using REWEAR.Domain.Entities;
 using REWEAR.Infrastructure.Persistence;
 

@@ -1,9 +1,13 @@
-using REWARE.Application.DTOs;
-using REWARE.Application.Interfaces;
+using Microsoft.IdentityModel.Tokens;
+using REWEAR.Application.DTOs;
+using REWEAR.Application.Interfaces;
 using REWEAR.Domain.Entities;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using System.Text.RegularExpressions;
 
-namespace REWARE.Application.Services;
+namespace REWEAR.Application.Services;
 
 /// <summary>
 /// Service xử lý đăng nhập, đăng ký, xác thực OTP.
@@ -15,6 +19,12 @@ public class AuthService : IAuthService
 
     // Thời gian hết hạn OTP: 5 phút
     private const int OTP_EXPIRY_MINUTES = 5;
+
+    // JWT Configuration
+    private const string JWT_SECRET = "RewearSecretKey2024!@#$%^&*()_+MinLength32Chars";
+    private const string JWT_ISSUER = "RewearAPI";
+    private const string JWT_AUDIENCE = "RewearApp";
+    private const int JWT_EXPIRY_HOURS = 24;
 
     public AuthService(IUserRepository userRepository, IEmailService emailService)
     {
@@ -107,11 +117,11 @@ public class AuthService : IAuthService
 
         if (!emailSent)
         {
-            // Vẫn tạo user nhưng cảnh báo
+            // Email gửi thất bại - vẫn tạo user nhưng báo cho user biết
             return new AuthResponse
             {
-                Success = true,
-                Message = $"Đăng ký thành công! Mã OTP đã được gửi đến email {user.Email}. (Lưu ý: Email có thể nằm trong thư rác)",
+                Success = false,
+                Message = $"Đăng ký không thành công! Không thể gửi mã OTP đến email {user.Email}. Vui lòng kiểm tra lại email.",
                 UserId = user.Id,
                 Email = user.Email,
                 FullName = user.FullName,
@@ -171,6 +181,9 @@ public class AuthService : IAuthService
 
         await _userRepository.UpdateAsync(user);
 
+        // Tạo JWT Token
+        string token = GenerateJwtToken(user);
+
         return new AuthResponse
         {
             Success = true,
@@ -178,7 +191,8 @@ public class AuthService : IAuthService
             UserId = user.Id,
             Email = user.Email,
             FullName = user.FullName,
-            RequiresVerification = false
+            RequiresVerification = false,
+            Token = "Bearer " + token
         };
     }
 
@@ -212,13 +226,17 @@ public class AuthService : IAuthService
         if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             return new AuthResponse { Success = false, Message = "Email hoặc mật khẩu không chính xác." };
 
+        // Tạo JWT Token
+        string token = GenerateJwtToken(user);
+
         return new AuthResponse
         {
             Success = true,
             Message = "Đăng nhập thành công!",
             UserId = user.Id,
             Email = user.Email,
-            FullName = user.FullName
+            FullName = user.FullName,
+            Token = "Bearer " + token
         };
     }
 
@@ -229,5 +247,33 @@ public class AuthService : IAuthService
     {
         Random random = new Random();
         return random.Next(100000, 999999).ToString();
+    }
+
+    /// <summary>
+    /// Tạo JWT Token cho user.
+    /// </summary>
+    public string GenerateJwtToken(User user)
+    {
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JWT_SECRET));
+        var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, user.Id ?? ""),
+            new Claim(JwtRegisteredClaimNames.Email, user.Email ?? ""),
+            new Claim(JwtRegisteredClaimNames.Name, user.FullName ?? ""),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: JWT_ISSUER,
+            audience: JWT_AUDIENCE,
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(JWT_EXPIRY_HOURS),
+            signingCredentials: credentials
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

@@ -1,4 +1,4 @@
-﻿namespace REWEAR.Infrastructure.Persistence;
+namespace REWEAR.Infrastructure.Persistence;
 
 public class MongoDbSettings
 {

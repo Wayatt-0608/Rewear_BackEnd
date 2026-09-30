@@ -1,7 +1,7 @@
-using REWARE.Application.DTOs;
+using REWEAR.Application.DTOs;
 using REWEAR.Domain.Entities;
 
-namespace REWARE.Application.Interfaces;
+namespace REWEAR.Application.Interfaces;
 
 /// <summary>
 /// Interface cho Authentication Service.
@@ -22,4 +22,9 @@ public interface IAuthService
     /// Đăng nhập (chỉ tài khoản đã xác thực mới được đăng nhập).
     /// </summary>
     Task<AuthResponse> LoginAsync(LoginRequest request);
+
+    /// <summary>
+    /// Tạo JWT Token cho user.
+    /// </summary>
+    string GenerateJwtToken(User user);
 }
