@@ -37,12 +37,14 @@ builder.Services.AddSingleton<MongoDbContext>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserRepository, UserRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IBrandRepository, BrandRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICategoryRepository, CategoryRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductRepository, ProductRepository>();
 
 // Đăng ký Services
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IAuthService, REWEAR.Application.Services.AuthService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IEmailService, REWEAR.Infrastructure.Services.EmailService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IBrandService, REWEAR.Application.Services.BrandService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICategoryService, REWEAR.Application.Services.CategoryService>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductService, REWEAR.Application.Services.ProductService>();
 
 // ====== JWT AUTHENTICATION ======
 builder.Services.AddAuthentication(options =>
