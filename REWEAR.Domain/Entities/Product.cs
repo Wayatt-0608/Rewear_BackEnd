@@ -1,50 +1,76 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using REWEAR.Domain.Enums;
 
 namespace REWEAR.Domain.Entities;
 
 /// <summary>
-/// Đại diện cho một món đồ thời trang được đăng bán / trao đổi trên hệ thống REWEAR.
-/// Mỗi sản phẩm thuộc về một người dùng (OwnerId) và có thể được nhiều người khác yêu thích.
+/// Đại diện cho một món đồ thời trang secondhand/upcycled trên hệ thống REWEAR.
+/// Mỗi Product = 1 unique physical item.
 /// </summary>
 public class Product
 {
     /// <summary>
-    /// Khóa chính của sản phẩm, MongoDB sẽ tự tạo ObjectId khi insert.
+    /// Khóa chính của sản phẩm.
     /// </summary>
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
 
     /// <summary>
-    /// Tiêu đề / tên gọi của sản phẩm (ví dụ: "Áo thun trắng cổ tròn").
+    /// Tiêu đề / tên gọi của sản phẩm.
     /// </summary>
     [BsonElement("title")]
     public string Title { get; set; } = string.Empty;
 
     /// <summary>
-    /// Mô tả chi tiết về sản phẩm: tình trạng, kích thước, chất liệu...
+    /// Slug URL-friendly của sản phẩm.
+    /// </summary>
+    [BsonElement("slug")]
+    public string Slug { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Mô tả chi tiết về sản phẩm.
     /// </summary>
     [BsonElement("description")]
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// Giá bán (có thể là 0 nếu cho miễn phí / trao đổi).
+    /// Id của thương hiệu sản phẩm (reference đến Brand).
+    /// </summary>
+    [BsonElement("brandId")]
+    public string BrandId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Id của danh mục sản phẩm (reference đến Category).
+    /// </summary>
+    [BsonElement("categoryId")]
+    public string CategoryId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Giá bán (có thể là 0 nếu cho miễn phí).
     /// </summary>
     [BsonElement("price")]
     public decimal Price { get; set; }
 
     /// <summary>
-    /// Danh mục sản phẩm: Áo, Quần, Váy, Phụ kiện...
-    /// </summary>
-    [BsonElement("category")]
-    public string Category { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Tình trạng sản phẩm: "Mới", "Như mới", "Đã sử dụng"...
+    /// Tình trạng sản phẩm secondhand.
     /// </summary>
     [BsonElement("condition")]
-    public string Condition { get; set; } = string.Empty;
+    [BsonRepresentation(BsonType.String)]
+    public ProductCondition Condition { get; set; } = ProductCondition.Good;
+
+    /// <summary>
+    /// Size của sản phẩm (null nếu không có).
+    /// </summary>
+    [BsonElement("size")]
+    public string? Size { get; set; }
+
+    /// <summary>
+    /// Màu sắc của sản phẩm (null nếu không có).
+    /// </summary>
+    [BsonElement("color")]
+    public string? Color { get; set; }
 
     /// <summary>
     /// Danh sách URL hình ảnh của sản phẩm.
@@ -53,16 +79,17 @@ public class Product
     public List<string> ImageUrls { get; set; } = new();
 
     /// <summary>
-    /// Id của người đăng bán sản phẩm này.
-    /// </summary>
-    [BsonElement("ownerId")]
-    public string OwnerId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Trạng thái sản phẩm: "Còn hàng", "Đã bán", "Đã đặt cọc"...
+    /// Trạng thái thương mại của sản phẩm.
     /// </summary>
     [BsonElement("status")]
-    public string Status { get; set; } = "Còn hàng";
+    [BsonRepresentation(BsonType.String)]
+    public ProductStatus Status { get; set; } = ProductStatus.Available;
+
+    /// <summary>
+    /// Trạng thái hoạt động: true = active, false = inactive (soft delete).
+    /// </summary>
+    [BsonElement("isActive")]
+    public bool IsActive { get; set; } = true;
 
     /// <summary>
     /// Thời điểm tạo sản phẩm.
