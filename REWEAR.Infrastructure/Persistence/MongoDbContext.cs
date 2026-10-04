@@ -28,4 +28,7 @@ public class MongoDbContext
 
     public IMongoCollection<Address> Addresses =>
         _database.GetCollection<Address>("Addresses");
+
+    public IMongoCollection<SourcingRequest> SourcingRequests =>
+        _database.GetCollection<SourcingRequest>("SourcingRequests");
 }
