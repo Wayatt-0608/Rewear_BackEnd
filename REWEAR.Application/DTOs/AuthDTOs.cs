@@ -11,6 +11,14 @@ public class RegisterRequest
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string PasswordConfirm { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Role tùy chọn (chỉ dùng để test qua Swagger).
+    /// Frontend KHÔNG gửi field này → sẽ null → mặc định Member.
+    /// Giá trị hợp lệ: "Admin", "Staff", "Shipper", "Member".
+    /// Admin upgrade role chính thức qua API: PUT /api/admin/users/{id}/role
+    /// </summary>
+    public string? Role { get; set; }
 }
 
 /// <summary>
@@ -41,6 +49,26 @@ public class AuthResponse
     public string? UserId { get; set; }
     public string? Email { get; set; }
     public string? FullName { get; set; }
+    public string? Role { get; set; }  // Vai trò: Member, Admin, Staff, Shipper
     public bool? RequiresVerification { get; set; }
     public string? Token { get; set; }  // JWT Token
+}
+
+/// <summary>
+/// DTO cho yêu cầu đặt lại mật khẩu (dùng chung OTP).
+/// </summary>
+public class ResetPasswordRequest
+{
+    public string Email { get; set; } = string.Empty;
+    public string OtpCode { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
+    public string NewPasswordConfirm { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// DTO cho yêu cầu quên mật khẩu.
+/// </summary>
+public class ForgotPasswordRequest
+{
+    public string Email { get; set; } = string.Empty;
 }

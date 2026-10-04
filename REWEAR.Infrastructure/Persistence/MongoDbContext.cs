@@ -11,7 +11,6 @@ public class MongoDbContext
     public MongoDbContext(MongoDbSettings settings)
     {
         var client = new MongoClient(settings.ConnectionString);
-
         _database = client.GetDatabase(settings.DatabaseName);
     }
 
@@ -26,4 +25,7 @@ public class MongoDbContext
 
     public IMongoCollection<Category> Categories =>
         _database.GetCollection<Category>("Categories");
+
+    public IMongoCollection<Address> Addresses =>
+        _database.GetCollection<Address>("Addresses");
 }

@@ -63,6 +63,21 @@ public class User
     [BsonElement("otpExpiresAt")]
     public DateTime? OtpExpiresAt { get; set; }
 
+    [BsonElement("gender")]
+    public string? Gender { get; set; }
+
+    /// <summary>
+    /// Avatar URL.
+    /// </summary>
+    [BsonElement("avatarUrl")]
+    public string? AvatarUrl { get; set; }
+
+    /// <summary>
+    /// Vai trò của người dùng trong hệ thống.
+    /// </summary>
+    [BsonElement("role")]
+    public UserRole Role { get; set; } = UserRole.Member;
+
     /// <summary>
     /// Ngày tạo tài khoản.
     /// </summary>

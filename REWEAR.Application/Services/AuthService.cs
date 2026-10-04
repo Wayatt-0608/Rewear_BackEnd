@@ -10,7 +10,7 @@ using System.Text.RegularExpressions;
 namespace REWEAR.Application.Services;
 
 /// <summary>
-/// Service xử lý đăng nhập, đăng ký, xác thực OTP.
+/// Service xử lý đăng nhập, đăng ký, xác thực OTP, logout, forgot/reset password.
 /// </summary>
 public class AuthService : IAuthService
 {
@@ -95,6 +95,17 @@ public class AuthService : IAuthService
         DateTime otpExpiry = DateTime.UtcNow.AddMinutes(OTP_EXPIRY_MINUTES);
 
         // ===== TẠO USER =====
+        // Parse role từ request: nếu null/rỗng/invalid → mặc định Member.
+        // Frontend KHÔNG gửi field role (sẽ null) → luôn set Member.
+        // Swagger có thể gửi role bất kỳ để test nhanh.
+        // Admin upgrade role chính thức qua: PUT /api/admin/users/{id}/role
+        UserRole userRole = UserRole.Member;
+        if (!string.IsNullOrWhiteSpace(request.Role)
+            && Enum.TryParse<UserRole>(request.Role, ignoreCase: true, out var parsedRole))
+        {
+            userRole = parsedRole;
+        }
+
         var user = new User
         {
             FullName = request.FullName,
@@ -105,6 +116,7 @@ public class AuthService : IAuthService
             IsVerified = false,  // Chưa xác thực
             OtpCode = otpCode,
             OtpExpiresAt = otpExpiry,
+            Role = userRole,  // Tự động set theo logic: null/rỗng/invalid → Member
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -136,6 +148,7 @@ public class AuthService : IAuthService
             UserId = user.Id,
             Email = user.Email,
             FullName = user.FullName,
+            Role = user.Role.ToString(),
             RequiresVerification = true
         };
     }
@@ -191,6 +204,7 @@ public class AuthService : IAuthService
             UserId = user.Id,
             Email = user.Email,
             FullName = user.FullName,
+            Role = user.Role.ToString(),
             RequiresVerification = false,
             Token = "Bearer " + token
         };
@@ -236,7 +250,114 @@ public class AuthService : IAuthService
             UserId = user.Id,
             Email = user.Email,
             FullName = user.FullName,
+            Role = user.Role.ToString(),
             Token = "Bearer " + token
+        };
+    }
+
+    /// <summary>
+    /// Gửi email đặt lại mật khẩu (gửi OTP).
+    /// </summary>
+    public async Task<AuthResponse> ForgotPasswordAsync(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return new AuthResponse { Success = false, Message = "Email không được để trống." };
+
+        // Tìm user
+        var user = await _userRepository.GetByEmailAsync(email.ToLower().Trim());
+        if (user == null)
+        {
+            // Không tiết lộ email có tồn tại hay không
+            return new AuthResponse
+            {
+                Success = true,
+                Message = "Nếu email tồn tại trong hệ thống, mã OTP đã được gửi."
+            };
+        }
+
+        // Tạo OTP mới
+        string otpCode = GenerateOtpCode();
+        user.OtpCode = otpCode;
+        user.OtpExpiresAt = DateTime.UtcNow.AddMinutes(OTP_EXPIRY_MINUTES);
+        user.UpdatedAt = DateTime.UtcNow;
+        await _userRepository.UpdateAsync(user);
+
+        // Gửi email OTP
+        bool emailSent = await _emailService.SendOtpEmailAsync(user.Email, otpCode, user.FullName);
+
+        if (!emailSent)
+        {
+            return new AuthResponse
+            {
+                Success = false,
+                Message = "Không thể gửi mã OTP. Vui lòng thử lại sau."
+            };
+        }
+
+        return new AuthResponse
+        {
+            Success = true,
+            Message = $"Mã OTP đã được gửi đến email {user.Email}."
+        };
+    }
+
+    /// <summary>
+    /// Đặt lại mật khẩu bằng OTP.
+    /// </summary>
+    public async Task<AuthResponse> ResetPasswordAsync(ResetPasswordRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return new AuthResponse { Success = false, Message = "Email không được để trống." };
+
+        if (string.IsNullOrWhiteSpace(request.OtpCode))
+            return new AuthResponse { Success = false, Message = "Mã OTP không được để trống." };
+
+        if (string.IsNullOrWhiteSpace(request.NewPassword))
+            return new AuthResponse { Success = false, Message = "Mật khẩu mới không được để trống." };
+
+        if (string.IsNullOrWhiteSpace(request.NewPasswordConfirm))
+            return new AuthResponse { Success = false, Message = "Xác nhận mật khẩu không được để trống." };
+
+        // Validate password strength
+        if (request.NewPassword.Length < 6)
+            return new AuthResponse { Success = false, Message = "Mật khẩu phải có ít nhất 6 ký tự." };
+
+        // Kiểm tra password match
+        if (request.NewPassword != request.NewPasswordConfirm)
+            return new AuthResponse { Success = false, Message = "Mật khẩu và xác nhận mật khẩu không khớp." };
+
+        // Tìm user
+        var user = await _userRepository.GetByEmailAsync(request.Email.ToLower().Trim());
+        if (user == null)
+            return new AuthResponse { Success = false, Message = "Không tìm thấy tài khoản với email này." };
+
+        // Kiểm tra OTP
+        if (string.IsNullOrEmpty(user.OtpCode))
+            return new AuthResponse { Success = false, Message = "Không có mã OTP. Vui lòng gửi yêu cầu đặt lại mật khẩu trước." };
+
+        if (user.OtpCode != request.OtpCode.Trim())
+            return new AuthResponse { Success = false, Message = "Mã OTP không chính xác." };
+
+        // Kiểm tra OTP hết hạn
+        if (user.OtpExpiresAt == null || user.OtpExpiresAt < DateTime.UtcNow)
+        {
+            user.OtpCode = null;
+            user.OtpExpiresAt = null;
+            await _userRepository.UpdateAsync(user);
+            return new AuthResponse { Success = false, Message = "Mã OTP đã hết hạn. Vui lòng gửi yêu cầu đặt lại mật khẩu trước." };
+        }
+
+        // Đặt lại mật khẩu
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.OtpCode = null;
+        user.OtpExpiresAt = null;
+        user.UpdatedAt = DateTime.UtcNow;
+        await _userRepository.UpdateAsync(user);
+
+        return new AuthResponse
+        {
+            Success = true,
+            Message = "Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập với mật khẩu mới."
         };
     }
 
@@ -262,6 +383,7 @@ public class AuthService : IAuthService
             new Claim(JwtRegisteredClaimNames.Sub, user.Id ?? ""),
             new Claim(JwtRegisteredClaimNames.Email, user.Email ?? ""),
             new Claim(JwtRegisteredClaimNames.Name, user.FullName ?? ""),
+            new Claim(ClaimTypes.Role, user.Role.ToString()),  // Thêm Role vào JWT
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };

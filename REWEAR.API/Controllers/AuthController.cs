@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using REWEAR.Application.DTOs;
 using REWEAR.Application.Interfaces;
 
@@ -64,6 +65,38 @@ public class AuthController : ControllerBase
         if (!result.Success)
         {
             return Unauthorized(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Gửi OTP đặt lại mật khẩu.
+    /// POST /api/auth/forgot-password
+    /// Body: { "email": "user@example.com" }
+    /// </summary>
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        var result = await _authService.ForgotPasswordAsync(request.Email);
+        
+        // Luôn trả về success để tránh tiết lộ email có tồn tại hay không
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Đặt lại mật khẩu bằng OTP.
+    /// POST /api/auth/reset-password
+    /// Body: { "email": "user@example.com", "otpCode": "123456", "newPassword": "...", "newPasswordConfirm": "..." }
+    /// </summary>
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        var result = await _authService.ResetPasswordAsync(request);
+        
+        if (!result.Success)
+        {
+            return BadRequest(result);
         }
 
         return Ok(result);

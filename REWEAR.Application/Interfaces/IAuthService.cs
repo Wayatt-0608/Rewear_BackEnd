@@ -24,6 +24,16 @@ public interface IAuthService
     Task<AuthResponse> LoginAsync(LoginRequest request);
 
     /// <summary>
+    /// Gửi email đặt lại mật khẩu (gửi OTP).
+    /// </summary>
+    Task<AuthResponse> ForgotPasswordAsync(string email);
+
+    /// <summary>
+    /// Đặt lại mật khẩu bằng OTP.
+    /// </summary>
+    Task<AuthResponse> ResetPasswordAsync(ResetPasswordRequest request);
+
+    /// <summary>
     /// Tạo JWT Token cho user.
     /// </summary>
     string GenerateJwtToken(User user);
