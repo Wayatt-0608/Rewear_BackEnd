@@ -43,9 +43,6 @@ public class AuthService : IAuthService
         if (string.IsNullOrWhiteSpace(request.FullName))
             return new AuthResponse { Success = false, Message = "Họ và tên không được để trống." };
 
-        if (string.IsNullOrWhiteSpace(request.PhoneNumber))
-            return new AuthResponse { Success = false, Message = "Số điện thoại không được để trống." };
-
         if (string.IsNullOrWhiteSpace(request.Email))
             return new AuthResponse { Success = false, Message = "Email không được để trống." };
 
@@ -59,25 +56,7 @@ public class AuthService : IAuthService
         if (!Regex.IsMatch(request.Email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
             return new AuthResponse { Success = false, Message = "Email không hợp lệ." };
 
-        // 3. Validate phone format (10-11 số, bắt đầu bằng 0)
-        if (!Regex.IsMatch(request.PhoneNumber, @"^0[0-9]{9,10}$"))
-            return new AuthResponse { Success = false, Message = "Số điện thoại không hợp lệ (phải 10-11 số, bắt đầu bằng 0)." };
-
-        // 4. Validate birthdate format (YYYY-MM-DD)
-        if (!Regex.IsMatch(request.BirthDate, @"^\d{4}-\d{2}-\d{2}$"))
-            return new AuthResponse { Success = false, Message = "Ngày sinh phải theo định dạng YYYY-MM-DD." };
-
-        // Parse và validate ngày sinh
-        if (!DateTime.TryParse(request.BirthDate, out DateTime birthDate))
-            return new AuthResponse { Success = false, Message = "Ngày sinh không hợp lệ." };
-
-        // Kiểm tra tuổi >= 13
-        var age = DateTime.Today.Year - birthDate.Year;
-        if (DateTime.Today < birthDate.AddYears(age)) age--;
-        if (age < 13)
-            return new AuthResponse { Success = false, Message = "Bạn phải từ 13 tuổi trở lên để đăng ký." };
-
-        // 5. Validate password strength
+        // 3. Validate password strength
         if (request.Password.Length < 6)
             return new AuthResponse { Success = false, Message = "Mật khẩu phải có ít nhất 6 ký tự." };
 
@@ -109,8 +88,6 @@ public class AuthService : IAuthService
         var user = new User
         {
             FullName = request.FullName,
-            PhoneNumber = request.PhoneNumber,
-            BirthDate = request.BirthDate,
             Email = request.Email.ToLower().Trim(),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             IsVerified = false,  // Chưa xác thực

@@ -22,18 +22,6 @@ public class User
     public string FullName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Số điện thoại.
-    /// </summary>
-    [BsonElement("phoneNumber")]
-    public string PhoneNumber { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Ngày sinh (format: YYYY-MM-DD).
-    /// </summary>
-    [BsonElement("birthDate")]
-    public string BirthDate { get; set; } = string.Empty;
-
-    /// <summary>
     /// Email của người dùng (duy nhất, dùng để đăng nhập).
     /// </summary>
     [BsonElement("email")]

@@ -35,7 +35,6 @@ public class AdminController : ControllerBase
             u.Id,
             u.FullName,
             u.Email,
-            u.PhoneNumber,
             Role = u.Role.ToString(),
             u.IsVerified,
             u.CreatedAt
@@ -59,8 +58,6 @@ public class AdminController : ControllerBase
             user.Id,
             user.FullName,
             user.Email,
-            user.PhoneNumber,
-            user.BirthDate,
             user.Gender,
             user.AvatarUrl,
             Role = user.Role.ToString(),

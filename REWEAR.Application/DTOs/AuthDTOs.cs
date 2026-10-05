@@ -6,8 +6,6 @@ namespace REWEAR.Application.DTOs;
 public class RegisterRequest
 {
     public string FullName { get; set; } = string.Empty;
-    public string PhoneNumber { get; set; } = string.Empty;
-    public string BirthDate { get; set; } = string.Empty;  // Format: YYYY-MM-DD
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string PasswordConfirm { get; set; } = string.Empty;

@@ -39,8 +39,6 @@ public class ProfileService : IProfileService
         {
             Id = user.Id,
             FullName = user.FullName,
-            PhoneNumber = user.PhoneNumber,
-            BirthDate = user.BirthDate,
             Gender = user.Gender ?? string.Empty,
             Email = user.Email,
             AvatarUrl = user.AvatarUrl,
@@ -60,16 +58,6 @@ public class ProfileService : IProfileService
         // Cập nhật các trường được phép
         if (!string.IsNullOrWhiteSpace(request.FullName))
             user.FullName = request.FullName.Trim();
-
-        if (!string.IsNullOrWhiteSpace(request.PhoneNumber))
-        {
-            if (!Regex.IsMatch(request.PhoneNumber, @"^(0[0-9]{9,10})$"))
-                return new ApiResponse { Success = false, Message = "Số điện thoại không hợp lệ." };
-            user.PhoneNumber = request.PhoneNumber.Trim();
-        }
-
-        if (request.BirthDate != null)
-            user.BirthDate = request.BirthDate;
 
         if (request.Gender != null)
             user.Gender = request.Gender;
