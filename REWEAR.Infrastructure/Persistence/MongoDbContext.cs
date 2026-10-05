@@ -35,6 +35,24 @@ public class MongoDbContext
                 Builders<Product>.Filter.Exists("stockQuantity", false),
                 Builders<Product>.Update.Set("stockQuantity", 1)
             );
+
+            // User: 2 field (phoneNumber, birthDate) đã bị gỡ khỏi entity User ở
+            // commit "delete field", nhưng các document tạo trước đó vẫn còn field.
+            // MongoDB.Driver ném FormatException khi deserialize gặp field không
+            // có property tương ứng, khiến mọi API đọc user (đăng nhập, profile,
+            // admin list users) đều 500.
+            // Unset để dữ liệu khớp với code. Idempotent: chạy lại vẫn an toàn.
+            var users = _database.GetCollection<User>("Users");
+
+            users.UpdateMany(
+                Builders<User>.Filter.Or(
+                    Builders<User>.Filter.Exists("phoneNumber", true),
+                    Builders<User>.Filter.Exists("birthDate", true)
+                ),
+                Builders<User>.Update
+                    .Unset("phoneNumber")
+                    .Unset("birthDate")
+            );
         }
         catch (MongoConnectionException)
         {
@@ -106,6 +124,71 @@ public class MongoDbContext
                     new CreateIndexOptions { Name = "ix_orders_status_createdAt" }
                 )
             );
+
+            // Task 7: tra cứu timeline theo đơn, cũ nhất trước
+            _database.GetCollection<OrderStatusHistory>("OrderStatusHistories").Indexes.CreateOne(
+                new CreateIndexModel<OrderStatusHistory>(
+                    Builders<OrderStatusHistory>.IndexKeys
+                        .Ascending(h => h.OrderId)
+                        .Ascending(h => h.CreatedAt),
+                    new CreateIndexOptions { Name = "ix_histories_orderId_createdAt" }
+                )
+            );
+
+            // Task 8: tìm phiên thanh toán mới nhất của một đơn
+            _database.GetCollection<Payment>("Payments").Indexes.CreateOne(
+                new CreateIndexModel<Payment>(
+                    Builders<Payment>.IndexKeys
+                        .Ascending(p => p.OrderId)
+                        .Descending(p => p.CreatedAt),
+                    new CreateIndexOptions { Name = "ix_payments_orderId_createdAt" }
+                )
+            );
+
+            // Task 8: transactionId của PayOS phải unique. Nếu 2 giao dịch khác nhau
+            // cùng nhận 1 transactionId thì đó là lỗi đồng bộ hoặc dữ liệu bị giả mạo.
+            _database.GetCollection<Payment>("Payments").Indexes.CreateOne(
+                new CreateIndexModel<Payment>(
+                    Builders<Payment>.IndexKeys.Ascending(p => p.PayOsTransactionId),
+                    new CreateIndexOptions<Payment>
+                    {
+                        Unique = true,
+                        Name = "ux_payments_payosTransactionId",
+                        // Chỉ áp dụng cho phiên đã có transactionId; các phiên
+                        // chưa thanh toán có field này = null nên không bị xung đột.
+                        PartialFilterExpression = Builders<Payment>.Filter
+                            .Type(p => p.PayOsTransactionId, MongoDB.Bson.BsonType.String)
+                    }
+                )
+            );
+
+            // Task 8: background job quét các phiên thanh toán đã hết hạn chưa xử lý
+            _database.GetCollection<Payment>("Payments").Indexes.CreateOne(
+                new CreateIndexModel<Payment>(
+                    Builders<Payment>.IndexKeys
+                        .Ascending(p => p.Status)
+                        .Ascending(p => p.ExpiresAt),
+                    new CreateIndexOptions { Name = "ix_payments_status_expiresAt" }
+                )
+            );
+
+            // Task 9: mỗi đơn chỉ có 1 bản ghi vận chuyển
+            _database.GetCollection<Shipping>("Shippings").Indexes.CreateOne(
+                new CreateIndexModel<Shipping>(
+                    Builders<Shipping>.IndexKeys.Ascending(s => s.OrderId),
+                    new CreateIndexOptions { Unique = true, Name = "ux_shippings_orderId" }
+                )
+            );
+
+            // Task 9: dashboard shipper lọc đơn đang vận chuyển
+            _database.GetCollection<Shipping>("Shippings").Indexes.CreateOne(
+                new CreateIndexModel<Shipping>(
+                    Builders<Shipping>.IndexKeys
+                        .Ascending(s => s.Status)
+                        .Ascending(s => s.CreatedAt),
+                    new CreateIndexOptions { Name = "ix_shippings_status_createdAt" }
+                )
+            );
         }
         catch (MongoWriteException)
         {
@@ -137,6 +220,15 @@ public class MongoDbContext
 
     public IMongoCollection<Order> Orders =>
         _database.GetCollection<Order>("Orders");
+
+    public IMongoCollection<OrderStatusHistory> OrderStatusHistories =>
+        _database.GetCollection<OrderStatusHistory>("OrderStatusHistories");
+
+    public IMongoCollection<Payment> Payments =>
+        _database.GetCollection<Payment>("Payments");
+
+    public IMongoCollection<Shipping> Shippings =>
+        _database.GetCollection<Shipping>("Shippings");
 
     public IMongoCollection<SourcingRequest> SourcingRequests =>
         _database.GetCollection<SourcingRequest>("SourcingRequests");

@@ -6,6 +6,7 @@ namespace REWEAR.Domain.Entities;
 /// <summary>
 /// Địa chỉ giao hàng của người dùng.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class Address
 {
     /// <summary>

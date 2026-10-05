@@ -8,6 +8,7 @@ namespace REWEAR.Domain.Entities;
 /// Đại diện cho yêu cầu thu mua đồ cũ (Sourcing Request) trong hệ thống REWEAR.
 /// Khi customer muốn bán đồ secondhand cho REWEAR.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class SourcingRequest
 {
     /// <summary>

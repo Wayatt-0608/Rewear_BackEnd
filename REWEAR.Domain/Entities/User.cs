@@ -6,6 +6,14 @@ namespace REWEAR.Domain.Entities;
 /// <summary>
 /// Đại diện cho người dùng trong hệ thống REWEAR.
 /// </summary>
+/// <remarks>
+/// <see cref="BsonIgnoreExtraElementsAttribute"/> bảo MongoDB bỏ qua các field
+/// trong document mà class không khai báo, thay vì ném FormatException.
+/// Cần thiết vì khi xóa property khỏi entity, các document đã tồn tại trong DB
+/// vẫn giữ field cũ và mọi API đọc user sẽ 500 cho tới khi dữ liệu được dọn.
+/// Đây là lưới an toàn; migration trong MongoDbContext vẫn dọn dữ liệu cho sạch.
+/// </remarks>
+[BsonIgnoreExtraElements]
 public class User
 {
     /// <summary>

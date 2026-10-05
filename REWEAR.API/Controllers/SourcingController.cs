@@ -8,9 +8,6 @@ using REWEAR.Domain.Enums;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Controller xử lý Sourcing Request (Thu mua đồ cũ).
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class SourcingController : ControllerBase

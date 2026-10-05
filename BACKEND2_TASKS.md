@@ -84,28 +84,32 @@
 - [x] Order history
 
 ### Task 7: Order Status / Tracking
-- [ ] Order tracking entity
-- [ ] Update order status (Admin/Seller)
-- [ ] Order timeline (status history)
-- [ ] Tracking number
-- [ ] Estimated delivery date
+- [x] Order tracking entity (OrderStatusHistory)
+- [x] Update order status (Admin/Seller)
+- [x] Order timeline (status history)
+- [x] Tracking number
+- [x] Estimated delivery date
 - [ ] Notification when status changes (Task 15)
 
-### Task 8: Payment
-- [ ] Payment entity (OrderId, Amount, Method, Status)
-- [ ] Payment method enum (COD, VNPay, Momo, Banking)
-- [ ] Payment integration (VNPay sandbox)
-- [ ] Payment callback/webhook
-- [ ] Payment status update
-- [ ] Payment history
+### Task 8: Payment (PayOS - trả tiền trước)
+- [x] Payment entity (OrderId, Amount, Method, Status)
+- [x] Payment method enum (chỉ PayOs - bỏ COD/VNPay/Momo)
+- [x] Payment status enum (Pending/Paid/Failed/Expired/Refunded)
+- [x] Payment integration (PayOS)
+- [x] Payment callback/webhook (verify HMAC-SHA256 + idempotency)
+- [x] Payment status update (webhook + đối soát chủ động)
+- [x] Payment history
+- [x] Phiên thanh toán có hạn 15 phút + background job trả kho
+- [x] Hoàn tiền tự động qua PayOS khi hủy đơn đã trả
+- [ ] Cấu hình key PayOS thật (ClientId/ApiKey/ChecksumKey)
 
 ### Task 9: Shipping
-- [ ] Shipping entity (OrderId, Address, Method, Status)
-- [ ] Shipping method (Standard, Express)
-- [ ] Shipping fee calculation
+- [x] Shipping entity (OrderId, Method, Fee, Status)
+- [x] Shipping method (Standard, Express)
+- [x] Shipping fee calculation (REWEAR free ship toàn bộ → fee = 0)
 - [ ] GHN/GHTK integration (optional)
-- [ ] Tracking integration
-- [ ] Update shipping status
+- [x] Tracking integration (mirror sang Order.TrackingNumber)
+- [x] Update shipping status
 
 ### Task 10: Voucher
 - [ ] Voucher entity (Code, Discount, Expiry, UsageLimit)

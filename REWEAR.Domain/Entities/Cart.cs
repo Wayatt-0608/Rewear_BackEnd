@@ -7,6 +7,7 @@ namespace REWEAR.Domain.Entities;
 /// Giỏ hàng của người dùng.
 /// Mỗi user có đúng 1 giỏ, lưu chung 1 document chứa mảng Items.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class Cart
 {
     /// <summary>

@@ -7,6 +7,7 @@ namespace REWEAR.Domain.Entities;
 /// Một dòng sản phẩm trong giỏ hàng.
 /// Được lưu nhúng (embedded) bên trong document Cart, không phải collection riêng.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class CartItem
 {
     /// <summary>

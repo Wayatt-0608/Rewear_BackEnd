@@ -6,7 +6,7 @@ using REWEAR.Domain.Enums;
 namespace REWEAR.Application.Services;
 
 /// <summary>
-/// Service xử lý đơn hàng và checkout (Task 5 + Task 6).
+/// Service xử lý đơn hàng, checkout và theo dõi trạng thái (Task 5 + Task 6 + Task 7).
 /// </summary>
 public class OrderService : IOrderService
 {
@@ -14,17 +14,20 @@ public class OrderService : IOrderService
     private readonly ICartRepository _cartRepository;
     private readonly IProductRepository _productRepository;
     private readonly IAddressRepository _addressRepository;
+    private readonly IOrderStatusHistoryRepository _historyRepository;
 
     public OrderService(
         IOrderRepository orderRepository,
         ICartRepository cartRepository,
         IProductRepository productRepository,
-        IAddressRepository addressRepository)
+        IAddressRepository addressRepository,
+        IOrderStatusHistoryRepository historyRepository)
     {
         _orderRepository = orderRepository;
         _cartRepository = cartRepository;
         _productRepository = productRepository;
         _addressRepository = addressRepository;
+        _historyRepository = historyRepository;
     }
 
     // ============================================
@@ -32,8 +35,13 @@ public class OrderService : IOrderService
     // ============================================
 
     /// <summary>
-    /// Đặt hàng: validate nhóm món đã tick → chốt tồn kho → tạo đơn → xóa đúng nhóm đã mua.
+    /// Đặt hàng: validate nhóm món đã tick → chốt tồn kho → tạo đơn ở trạng thái
+    /// AwaitingPayment → ghi mốc timeline đầu tiên.
     /// </summary>
+    /// <remarks>
+    /// Việc tạo phiên thanh toán PayOS do <see cref="IPaymentService"/> đảm nhiệm
+    /// ngay sau khi đơn được tạo, để tách bạch trách nhiệm và dễ rollback.
+    /// </remarks>
     public async Task<ApiResponse> CheckoutAsync(string userId, CheckoutRequest request)
     {
         // ===== 1. VALIDATE ĐỊA CHỈ GIAO HÀNG =====
@@ -121,7 +129,18 @@ public class OrderService : IOrderService
             throw;
         }
 
-        // ===== 5. XÓA KHỏI GIỎ CHỈ NHÓM ĐÃ MUA =====
+        // ===== 5. GHI MỐC TIMELINE ĐẦU TIÊN (Task 7) =====
+        // Đơn bắt đầu ở AwaitingPayment: sản phẩm đang giữ chỗ chờ khách trả tiền.
+        await _historyRepository.CreateAsync(new OrderStatusHistory
+        {
+            OrderId = order.Id,
+            FromStatus = null,
+            ToStatus = OrderStatus.AwaitingPayment,
+            Note = "Đơn hàng đã được tạo, đang chờ thanh toán.",
+            ChangedBy = OrderStatusChangedBy.Customer
+        });
+
+        // ===== 6. XÓA KHỎI GIỎ CHỈ NHÓM ĐÃ MUA =====
         // Giữ nguyên các món chưa tick (user mua sau) và giữ nguyên trạng thái tick
         // của chúng. Chỉ xóa đúng nhóm vừa tạo đơn.
         var purchasedItemIds = selectedItems.Select(i => i.Id).ToHashSet();
@@ -130,13 +149,13 @@ public class OrderService : IOrderService
         cart.ExpiresAt = DateTime.UtcNow.AddDays(Cart.EXPIRATION_DAYS);
         await _cartRepository.UpdateAsync(cart);
 
-        // ===== 6. TRẢ KẾT QUẢ =====
+        // ===== 7. TRẢ KẾT QUẢ =====
         var response = await BuildOrderResponseAsync(order);
 
         return new ApiResponse
         {
             Success = true,
-            Message = $"Đặt hàng thành công. Mã đơn: {order.OrderCode}",
+            Message = $"Đặt hàng thành công. Mã đơn: {order.OrderCode}. Vui lòng hoàn tất thanh toán.",
             Data = response
         };
     }
@@ -240,8 +259,9 @@ public class OrderService : IOrderService
                 ? address.Note
                 : request.Note,
 
-            PaymentMethod = request.PaymentMethod,
-            Status = OrderStatus.Pending
+            // REWEAR chỉ có một phương thức thanh toán: trả tiền trước qua PayOS.
+            PaymentMethod = PaymentMethod.PayOs,
+            Status = OrderStatus.AwaitingPayment
         };
 
         decimal subTotal = 0m;
@@ -271,11 +291,12 @@ public class OrderService : IOrderService
             subTotal += unitPrice * item.Quantity;
         }
 
-        // Voucher (Task 10) và phí ship (Task 9) sẽ chèn vào giữa SubTotal và TotalAmount.
+        // REWEAR miễn phí vận chuyển toàn bộ: ShippingFee = 0.
+        // Voucher (Task 10) sẽ chèn DiscountAmount vào giữa SubTotal và TotalAmount.
         order.SubTotal = subTotal;
         order.DiscountAmount = 0m;
         order.ShippingFee = 0m;
-        order.TotalAmount = subTotal;
+        order.TotalAmount = subTotal - order.DiscountAmount + order.ShippingFee;
 
         return order;
     }
@@ -331,7 +352,7 @@ public class OrderService : IOrderService
     }
 
     /// <summary>
-    /// Lấy chi tiết đơn hàng theo mã hiển thị, có kiểm tra sở hữu.
+    /// Lấy chi tiết đơn hàng bằng mã hiển thị, có kiểm tra sở hữu.
     /// </summary>
     public async Task<OrderResponse?> GetOrderDetailByCodeAsync(string userId, string orderCode)
     {
@@ -346,26 +367,32 @@ public class OrderService : IOrderService
     /// <summary>
     /// Hủy đơn hàng và trả lại tồn kho cho các sản phẩm.
     /// </summary>
+    /// <remarks>
+    /// Chỉ hủy được đơn CHƯA thanh toán. Nếu đơn đã thu tiền thì phải hoàn tiền qua
+    /// PayOS trước, việc đó thuộc <see cref="IPaymentService.RefundAsync"/> vì cần gọi
+    /// API bên ngoài và có thể thất bại giữa chừng.
+    /// </remarks>
     public async Task<ApiResponse> CancelOrderAsync(string userId, string orderId, string? reason)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
         if (order == null || order.UserId != userId)
             return FailNotFound("Không tìm thấy đơn hàng.");
 
-        // Chỉ hủy được khi đơn chưa giao. Đơn đã Shipping/Delivered
-        // phải đi qua luồng hoàn trả (Task 12).
-        if (order.Status == OrderStatus.Shipping || order.Status == OrderStatus.Delivered)
+        // Đã thu tiền rồi -> không tự hủy, phải đi qua luồng hoàn tiền.
+        if (order.Status != OrderStatus.AwaitingPayment)
         {
             return new ApiResponse
             {
                 Success = false,
-                Message = "Đơn hàng đang được giao, không thể hủy. Vui lòng liên hệ để hoàn trả.",
+                Message = order.Status switch
+                {
+                    OrderStatus.Confirmed or OrderStatus.Shipping or OrderStatus.Delivered
+                        => "Đơn hàng đã thanh toán và đang được xử lý. Vui lòng liên hệ để được hoàn tiền.",
+                    _ => "Đơn hàng không còn ở trạng thái chờ thanh toán."
+                },
                 ErrorCode = ApiErrorCode.Conflict
             };
         }
-
-        if (order.Status == OrderStatus.Cancelled)
-            return Fail("Đơn hàng đã bị hủy trước đó.");
 
         // Trả lại tồn kho cho từng sản phẩm trong đơn.
         foreach (var item in order.Items)
@@ -379,6 +406,17 @@ public class OrderService : IOrderService
 
         await _orderRepository.UpdateAsync(order);
 
+        // Ghi vào timeline (Task 7).
+        await _historyRepository.CreateAsync(new OrderStatusHistory
+        {
+            OrderId = order.Id,
+            FromStatus = OrderStatus.AwaitingPayment,
+            ToStatus = OrderStatus.Cancelled,
+            Note = order.CancelReason,
+            ChangedBy = OrderStatusChangedBy.Customer,
+            ChangedByUserId = userId
+        });
+
         var response = await BuildOrderResponseAsync(order);
 
         return new ApiResponse
@@ -386,6 +424,145 @@ public class OrderService : IOrderService
             Success = true,
             Message = "Đã hủy đơn hàng.",
             Data = response
+        };
+    }
+
+    // ============================================
+    // ORDER TRACKING (Task 7)
+    // ============================================
+
+    /// <summary>
+    /// Cập nhật trạng thái đơn và ghi vào timeline.
+    /// Chỉ cho phép chuyển trạng thái đi đúng 1 chiều theo sơ đồ bên dưới.
+    /// </summary>
+    public async Task<ApiResponse> UpdateStatusAsync(
+        string orderId, OrderStatus newStatus, string? note,
+        string? trackingNumber, DateTime? estimatedDeliveryDate,
+        OrderStatusChangedBy changedBy, string? changedByUserId)
+    {
+        var order = await _orderRepository.GetByIdAsync(orderId);
+        if (order == null)
+            return FailNotFound("Không tìm thấy đơn hàng.");
+
+        // Đã kết thúc thì không đổi trạng thái được nữa.
+        if (order.IsFinalized)
+            return Fail("Đơn hàng đã kết thúc, không thể cập nhật trạng thái.", ApiErrorCode.Conflict);
+
+        // Chặn chuyển trạng thái không hợp lệ (vd: Shipping -> Confirmed).
+        if (!IsValidTransition(order.Status, newStatus))
+        {
+            return Fail(
+                $"Không thể chuyển đơn từ \"{order.Status}\" sang \"{newStatus}\".",
+                ApiErrorCode.Conflict);
+        }
+
+        // Chuyển sang Shipping thì bắt buộc có mã vận đơn để khách tra cứu được.
+        if (newStatus == OrderStatus.Shipping && string.IsNullOrWhiteSpace(trackingNumber))
+            return Fail("Cần nhập mã vận đơn trước khi chuyển sang đang giao.", ApiErrorCode.Validation);
+
+        // Lưu lại trạng thái cũ để ghi timeline.
+        var fromStatus = order.Status;
+
+        order.Status = newStatus;
+        order.UpdatedAt = DateTime.UtcNow;
+
+        if (!string.IsNullOrWhiteSpace(trackingNumber))
+            order.TrackingNumber = trackingNumber;
+
+        if (estimatedDeliveryDate.HasValue)
+            order.EstimatedDeliveryDate = estimatedDeliveryDate;
+
+        // Chốt sản phẩm sang Sold khi giao thành công. Trước đó sản phẩm vẫn giữ ở
+        // Reserved để hủy/hoàn tiền còn trả về kho được.
+        if (newStatus == OrderStatus.Delivered)
+        {
+            foreach (var item in order.Items)
+            {
+                await _productRepository.CommitStockAsync(item.ProductId, item.Quantity);
+            }
+        }
+
+        await _orderRepository.UpdateAsync(order);
+
+        // Ghi 1 mốc vào timeline (append-only).
+        await _historyRepository.CreateAsync(new OrderStatusHistory
+        {
+            OrderId = order.Id,
+            FromStatus = fromStatus,
+            ToStatus = newStatus,
+            Note = note,
+            ChangedBy = changedBy,
+            ChangedByUserId = changedByUserId
+        });
+
+        return new ApiResponse
+        {
+            Success = true,
+            Message = $"Đã cập nhật trạng thái đơn thành \"{newStatus}\".",
+            Data = await BuildOrderResponseAsync(order)
+        };
+    }
+
+    /// <summary>
+    /// Sơ đồ chuyển trạng thái hợp lệ (Task 7).
+    /// AwaitingPayment → Confirmed → Shipping → Delivered, kèm 2 đường hủy
+    /// (khách chủ động hủy / hết hạn thanh toán) chỉ mở khi chưa thu tiền.
+    /// </summary>
+    private static bool IsValidTransition(OrderStatus from, OrderStatus to)
+    {
+        return (from, to) switch
+        {
+            // Chỉ vào Confirmed khi đơn chưa thu tiền; thực tế PaymentService gọi
+            // hàm này sau khi đã xác nhận Paid nên không có đường lách.
+            (OrderStatus.AwaitingPayment, OrderStatus.Confirmed) => true,
+            (OrderStatus.AwaitingPayment, OrderStatus.Cancelled) => true,
+            (OrderStatus.AwaitingPayment, OrderStatus.PaymentExpired) => true,
+            (OrderStatus.Confirmed, OrderStatus.Shipping) => true,
+            (OrderStatus.Shipping, OrderStatus.Delivered) => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Lấy thông tin theo dõi đơn (mã vận đơn + timeline) cho người mua.
+    /// </summary>
+    public async Task<OrderTrackingResponse?> GetTrackingAsync(string userId, string orderId)
+    {
+        var order = await _orderRepository.GetByIdAsync(orderId);
+
+        // Người mua chỉ xem được đơn của chính mình.
+        if (order == null || order.UserId != userId)
+            return null;
+
+        var histories = await _historyRepository.GetByOrderIdAsync(order.Id);
+
+        // Trạng thái thanh toán suy ra từ trạng thái đơn: chỉ Confirmed trở đi
+        // mới chắc chắn đã thu tiền.
+        string paymentStatus = order.Status switch
+        {
+            OrderStatus.AwaitingPayment => "Pending",
+            OrderStatus.PaymentExpired => "Expired",
+            OrderStatus.Cancelled => "Pending",
+            _ => "Paid"
+        };
+
+        return new OrderTrackingResponse
+        {
+            OrderId = order.Id,
+            OrderCode = order.OrderCode,
+            CurrentStatus = order.Status.ToString(),
+            PaymentStatus = paymentStatus,
+            TrackingNumber = order.TrackingNumber,
+            EstimatedDeliveryDate = order.EstimatedDeliveryDate,
+            Timeline = histories.Select(h => new OrderStatusHistoryResponse
+            {
+                Id = h.Id,
+                FromStatus = h.FromStatus?.ToString(),
+                ToStatus = h.ToStatus.ToString(),
+                Note = h.Note,
+                ChangedBy = h.ChangedBy.ToString(),
+                CreatedAt = h.CreatedAt
+            }).ToList()
         };
     }
 
@@ -448,10 +625,13 @@ public class OrderService : IOrderService
             TotalAmount = order.TotalAmount,
             Status = order.Status.ToString(),
             CancelReason = order.CancelReason,
+            TrackingNumber = order.TrackingNumber,
+            EstimatedDeliveryDate = order.EstimatedDeliveryDate,
             CreatedAt = order.CreatedAt,
             UpdatedAt = order.UpdatedAt,
             IsFinalized = order.IsFinalized,
-            CanCancel = order.Status is OrderStatus.Pending or OrderStatus.Confirmed
+            // Chỉ còn ở trạng thái chờ thanh toán thì người mua mới tự hủy được.
+            CanCancel = order.Status == OrderStatus.AwaitingPayment
         };
     }
 

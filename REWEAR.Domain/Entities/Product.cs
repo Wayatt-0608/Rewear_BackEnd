@@ -8,6 +8,12 @@ namespace REWEAR.Domain.Entities;
 /// Đại diện cho một món đồ thời trang secondhand/upcycled trên hệ thống REWEAR.
 /// Mỗi Product = 1 unique physical item.
 /// </summary>
+/// <remarks>
+/// <see cref="BsonIgnoreExtraElementsAttribute"/> bảo MongoDB bỏ qua field lạ
+/// trong document (thường do property đã bị gỡ khỏi entity) thay vì ném
+/// FormatException làm hỏng toàn bộ API đọc sản phẩm.
+/// </remarks>
+[BsonIgnoreExtraElements]
 public class Product
 {
     /// <summary>

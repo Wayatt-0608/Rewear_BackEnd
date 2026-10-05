@@ -8,6 +8,7 @@ namespace REWEAR.Domain.Entities;
 /// Một đơn hàng của người mua, được tạo ra từ giỏ hàng tại bước Checkout (Task 5).
 /// Lưu 1 document chứa mảng OrderItem nhúng bên trong.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class Order
 {
     /// <summary>
@@ -76,11 +77,12 @@ public class Order
     // ====== THANH TOÁN & TỔNG TIỀN ======
 
     /// <summary>
-    /// Phương thức thanh toán đã chọn. Thực thi thanh toán thật thuộc Task 8.
+    /// Phương thức thanh toán đã chọn. REWEAR chỉ hỗ trợ PayOS, khách phải trả tiền
+    /// trước thì mới mua được (Task 8).
     /// </summary>
     [BsonElement("paymentMethod")]
     [BsonRepresentation(BsonType.String)]
-    public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.COD;
+    public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.PayOs;
 
     /// <summary>
     /// Tổng tiền hàng trước khi áp voucher (Task 10) và phí vận chuyển (Task 9).
@@ -95,7 +97,8 @@ public class Order
     public decimal DiscountAmount { get; set; }
 
     /// <summary>
-    /// Phí vận chuyển (Task 9). Hiện luôn = 0.
+    /// Phí vận chuyển (Task 9). REWEAR miễn phí vận chuyển toàn bộ nên luôn = 0,
+    /// giữ trường để sẵn sàng cho khi chính sách phí ship thay đổi.
     /// </summary>
     [BsonElement("shippingFee")]
     public decimal ShippingFee { get; set; }
@@ -113,13 +116,27 @@ public class Order
     /// </summary>
     [BsonElement("status")]
     [BsonRepresentation(BsonType.String)]
-    public OrderStatus Status { get; set; } = OrderStatus.Pending;
+    public OrderStatus Status { get; set; } = OrderStatus.AwaitingPayment;
 
     /// <summary>
-    /// Lý do hủy đơn (nếu Status = Cancelled).
+    /// Lý do hủy đơn (nếu Status = Cancelled hoặc PaymentExpired).
     /// </summary>
     [BsonElement("cancelReason")]
     public string? CancelReason { get; set; }
+
+    // ====== THEO DÕI VẬN CHUYỂN (Task 7) ======
+
+    /// <summary>
+    /// Mã vận đơn của đơn vị vận chuyển (vd: "GHN12345678"). Nhân viên nhập khi gửi hàng.
+    /// </summary>
+    [BsonElement("trackingNumber")]
+    public string? TrackingNumber { get; set; }
+
+    /// <summary>
+    /// Ngày dự kiến giao đến tay người mua. Hiển thị cho FE để đếm ngày còn lại.
+    /// </summary>
+    [BsonElement("estimatedDeliveryDate")]
+    public DateTime? EstimatedDeliveryDate { get; set; }
 
     /// <summary>
     /// Thời điểm tạo đơn.
@@ -143,9 +160,11 @@ public class Order
 
     /// <summary>
     /// Đơn đã ở trạng thái kết thúc chưa (không còn cho phép thao tác).
+    /// Bao gồm cả PaymentExpired vì đơn hết hạn cũng không thể thao tác nữa.
     /// </summary>
     [BsonIgnore]
-    public bool IsFinalized => Status is OrderStatus.Delivered or OrderStatus.Cancelled;
+    public bool IsFinalized => Status is OrderStatus.Delivered or OrderStatus.Cancelled
+        or OrderStatus.PaymentExpired;
 
     /// <summary>
     /// Tạo mã đơn hàng dạng RW-YYYYMMDD-XXXXXX.

@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using REWEAR.API.Filters;
 using REWEAR.Domain.Entities;
 using REWEAR.Infrastructure.Cloudinary;
+using REWEAR.Infrastructure.Payments;
 using REWEAR.Infrastructure.Persistence;
 using REWEAR.Infrastructure.Repositories;
 using REWEAR.API.Middleware;
@@ -52,6 +53,18 @@ var cloudinarySettings = new CloudinarySettings
 };
 builder.Services.AddSingleton(cloudinarySettings);
 
+// Đọc cấu hình PayOS từ appsettings.json
+var payOsSettings = new PayOsSettings
+{
+    ClientId = builder.Configuration.GetSection("PayOs:ClientId").Value ?? "",
+    ApiKey = builder.Configuration.GetSection("PayOs:ApiKey").Value ?? "",
+    ChecksumKey = builder.Configuration.GetSection("PayOs:ChecksumKey").Value ?? "",
+    BaseUrl = builder.Configuration.GetSection("PayOs:BaseUrl").Value ?? "https://api-beta.payos.vn",
+    AppBaseUrl = builder.Configuration.GetSection("PayOs:AppBaseUrl").Value ?? "",
+    ExpirationMinutes = builder.Configuration.GetValue("PayOs:ExpirationMinutes", 15)
+};
+builder.Services.AddSingleton(payOsSettings);
+
 // Đăng ký Repositories
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserRepository, UserRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IAddressRepository, AddressRepository>();
@@ -60,6 +73,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ICategoryRepository, Ca
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductRepository, ProductRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICartRepository, CartRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderStatusHistoryRepository, OrderStatusHistoryRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IPaymentRepository, PaymentRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IShippingRepository, ShippingRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingRepository, SourcingRepository>();
 
 // Đăng ký Services
@@ -73,6 +89,25 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductService, REWEAR
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICartService, REWEAR.Application.Services.CartService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderService, REWEAR.Application.Services.OrderService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEAR.Application.Services.SourcingService>();
+
+// ====== PAYMENT (Task 8) ======
+// HttpClient cho PayOsService: dùng AddHttpClient để có connection pooling
+// và cơ chế tái tạo kết nối tự động khi DNS/đường dây đổi.
+builder.Services.AddSingleton<REWEAR.Application.Interfaces.IPaymentGatewayConfig,
+    REWEAR.Infrastructure.Services.PaymentGatewayConfig>();
+builder.Services.AddHttpClient<REWEAR.Application.Interfaces.IPayOsService,
+    REWEAR.Infrastructure.Services.PayOsService>(client =>
+{
+    // PayOS yêu cầu timeout hợp lý: quá dài sẽ giữ nguyên request của checkout.
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IPaymentService,
+    REWEAR.Application.Services.PaymentService>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IShippingService,
+    REWEAR.Application.Services.ShippingService>();
+
+// Background service đóng phiên thanh toán hết hạn (trả sản phẩm về kho).
+builder.Services.AddHostedService<REWEAR.Infrastructure.Services.PaymentExpirationService>();
 
 // ====== JWT AUTHENTICATION ======
 builder.Services.AddAuthentication(options =>

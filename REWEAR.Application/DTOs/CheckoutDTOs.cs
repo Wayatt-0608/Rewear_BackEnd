@@ -17,10 +17,9 @@ public class CheckoutRequest
     public string ShippingAddressId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Phương thức thanh toán. COD = thanh toán khi nhận hàng.
-    /// Các phương thức online sẽ được xử lý ở Task 8 (Payment).
+    /// Phương thức vận chuyển. REWEAR miễn phí vận chuyển nên chỉ khác nhau ở thời gian giao.
     /// </summary>
-    public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.COD;
+    public ShippingMethod ShippingMethod { get; set; } = ShippingMethod.Standard;
 
     /// <summary>
     /// Ghi chú cho đơn hàng (vd: "Gọi trước khi giao").
