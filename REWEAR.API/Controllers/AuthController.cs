@@ -99,11 +99,12 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> GetAllUsers([FromServices] IUserRepository userRepository)
     {
         var users = await userRepository.GetAllAsync();
-        return Ok(users.Select(u => new 
+        return Ok(users.Select(u => new
         {
             u.Id,
             u.Email,
             u.FullName,
+            Role = u.Role.ToString(),
             u.IsVerified,
             u.CreatedAt
         }));
