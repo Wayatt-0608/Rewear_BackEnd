@@ -76,4 +76,30 @@ public class ApiResponse
     public bool Success { get; set; }
     public string? Message { get; set; }
     public object? Data { get; set; }
+
+    /// <summary>
+    /// Mã lỗi nghiệp vụ để Controller chọn đúng HTTP status code
+    /// (thay vì đoán qua nội dung Message).
+    /// Xem <see cref="ApiErrorCode"/> cho danh sách mã.
+    /// </summary>
+    public string? ErrorCode { get; set; }
+}
+
+/// <summary>
+/// Các mã lỗi nghiệp vụ dùng chung cho ApiResponse.ErrorCode.
+/// Controller map mã này sang HTTP status code tương ứng.
+/// </summary>
+public static class ApiErrorCode
+{
+    /// <summary>Dữ liệu đầu vào không hợp lệ (sai định dạng, thiếu trường, vượt giới hạn).</summary>
+    public const string Validation = "VALIDATION_ERROR";
+
+    /// <summary>Không tìm thấy tài nguyên theo Id (vd: mục giỏ hàng không tồn tại).</summary>
+    public const string NotFound = "NOT_FOUND";
+
+    /// <summary>Không có quyền truy cập tài nguyên.</summary>
+    public const string Forbidden = "FORBIDDEN";
+
+    /// <summary>Xung đột trạng thái (vd: email đã tồn tại, sản phẩm đã được bán).</summary>
+    public const string Conflict = "CONFLICT";
 }

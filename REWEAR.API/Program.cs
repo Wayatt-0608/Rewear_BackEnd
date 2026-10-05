@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using REWEAR.API.Filters;
 using REWEAR.Domain.Entities;
 using REWEAR.Infrastructure.Cloudinary;
 using REWEAR.Infrastructure.Persistence;
@@ -9,6 +10,7 @@ using REWEAR.Infrastructure.Repositories;
 using REWEAR.API.Middleware;
 using System.Net;
 using System.Net.Security;
+using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
@@ -56,6 +58,8 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IAddressRepository, Add
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IBrandRepository, BrandRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductRepository, ProductRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.ICartRepository, CartRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderRepository, OrderRepository>();
 
 // Đăng ký Services
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IAuthService, REWEAR.Application.Services.AuthService>();
@@ -65,6 +69,8 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ICloudinaryService, Clo
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IBrandService, REWEAR.Application.Services.BrandService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICategoryService, REWEAR.Application.Services.CategoryService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductService, REWEAR.Application.Services.ProductService>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.ICartService, REWEAR.Application.Services.CartService>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderService, REWEAR.Application.Services.OrderService>();
 
 // ====== JWT AUTHENTICATION ======
 builder.Services.AddAuthentication(options =>
@@ -129,6 +135,15 @@ builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServe
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
+    // Nạp XML comments để Swagger hiện mô tả và tên chức năng của từng endpoint.
+    // File XML nằm cạnh DLL sau khi build (bật GenerateDocumentationFile trong .csproj).
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    c.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+
+    // Bổ sung OperationId + Summary cho endpoint nào thiếu (fallback an toàn).
+    c.OperationFilter<SwaggerOperationInfoFilter>();
+
     c.SwaggerDoc("v1", new OpenApiInfo 
     { 
         Title = "Rewear API", 

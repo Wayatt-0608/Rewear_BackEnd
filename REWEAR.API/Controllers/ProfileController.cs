@@ -6,9 +6,6 @@ using REWEAR.Application.Interfaces;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Controller quản lý User Profile và Address.
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -33,7 +30,7 @@ public class ProfileController : ControllerBase
     // ============================================
 
     /// <summary>
-    /// Lấy thông tin profile của user hiện tại.
+    /// Lấy thông tin cá nhân của người dùng hiện tại
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetProfile()
@@ -50,8 +47,7 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật thông tin cá nhân.
-    /// PUT /api/profile
+    /// Cập nhật thông tin cá nhân
     /// </summary>
     [HttpPut]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
@@ -68,8 +64,7 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật avatar bằng cách upload file từ máy.
-    /// PUT /api/profile/avatar (multipart/form-data, field: "file")
+    /// Cập nhật ảnh đại diện bằng cách upload file
     /// </summary>
     [HttpPut("avatar")]
     [Consumes("multipart/form-data")]
@@ -123,8 +118,7 @@ public class ProfileController : ControllerBase
     // ============================================
 
     /// <summary>
-    /// Lấy danh sách địa chỉ của user.
-    /// GET /api/profile/addresses
+    /// Lấy danh sách địa chỉ của người dùng hiện tại
     /// </summary>
     [HttpGet("addresses")]
     public async Task<IActionResult> GetAddresses()
@@ -138,8 +132,7 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy chi tiết 1 địa chỉ.
-    /// GET /api/profile/addresses/{id}
+    /// Lấy chi tiết một địa chỉ
     /// </summary>
     [HttpGet("addresses/{id}")]
     public async Task<IActionResult> GetAddressById(string id)
@@ -156,8 +149,7 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
-    /// Thêm địa chỉ mới.
-    /// POST /api/profile/addresses
+    /// Thêm địa chỉ mới
     /// </summary>
     [HttpPost("addresses")]
     public async Task<IActionResult> CreateAddress([FromBody] AddressRequest request)
@@ -174,8 +166,7 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật địa chỉ.
-    /// PUT /api/profile/addresses/{id}
+    /// Cập nhật địa chỉ
     /// </summary>
     [HttpPut("addresses/{id}")]
     public async Task<IActionResult> UpdateAddress(string id, [FromBody] AddressRequest request)
@@ -192,8 +183,7 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
-    /// Xóa địa chỉ.
-    /// DELETE /api/profile/addresses/{id}
+    /// Xóa địa chỉ
     /// </summary>
     [HttpDelete("addresses/{id}")]
     public async Task<IActionResult> DeleteAddress(string id)
@@ -210,8 +200,7 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
-    /// Đặt địa chỉ mặc định.
-    /// PUT /api/profile/addresses/{id}/default
+    /// Đặt địa chỉ mặc định
     /// </summary>
     [HttpPut("addresses/{id}/default")]
     public async Task<IActionResult> SetDefaultAddress(string id)

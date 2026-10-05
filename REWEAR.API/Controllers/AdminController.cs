@@ -7,9 +7,6 @@ using REWEAR.Domain.Entities;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Controller dành riêng cho Admin quản lý users và roles.
-/// </summary>
 [ApiController]
 [Route("api/admin")]
 [Authorize(Policy = "AdminOnly")]
@@ -25,8 +22,7 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả users.
-    /// GET /api/admin/users
+    /// Lấy danh sách người dùng (Admin)
     /// </summary>
     [HttpGet("users")]
     [Authorize(Policy = Permission.UserRead)]
@@ -49,8 +45,7 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy thông tin user theo ID.
-    /// GET /api/admin/users/{id}
+    /// Lấy chi tiết một người dùng (Admin)
     /// </summary>
     [HttpGet("users/{id}")]
     [Authorize(Policy = Permission.UserRead)]
@@ -78,8 +73,7 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Gán/Cập nhật role cho user.
-    /// PUT /api/admin/users/{id}/role
+    /// Cập nhật vai trò của người dùng (Admin)
     /// </summary>
     [HttpPut("users/{id}/role")]
     [Authorize(Policy = Permission.UserUpdateRole)]
@@ -111,8 +105,7 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Xóa tài khoản user.
-    /// DELETE /api/admin/users/{id}
+    /// Xóa người dùng (Admin)
     /// </summary>
     [HttpDelete("users/{id}")]
     [Authorize(Policy = Permission.UserDelete)]
@@ -137,9 +130,6 @@ public class AdminController : ControllerBase
     }
 }
 
-/// <summary>
-/// Request cập nhật role.
-/// </summary>
 public class UpdateRoleRequest
 {
     public string Role { get; set; } = string.Empty;

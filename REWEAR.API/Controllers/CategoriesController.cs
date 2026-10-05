@@ -4,9 +4,6 @@ using REWEAR.Application.Interfaces;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Controller xử lý Category (Quản lý danh mục sản phẩm).
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class CategoriesController : ControllerBase
@@ -19,10 +16,7 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả danh mục.
-    /// GET /api/categories
-    /// GET /api/categories?isActive=true
-    /// GET /api/categories?isActive=false
+    /// Lấy danh sách danh mục (lọc theo isActive)
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] bool? isActive)
@@ -32,8 +26,7 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy thông tin danh mục theo Id.
-    /// GET /api/categories/{id}
+    /// Lấy chi tiết một danh mục
     /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id)
@@ -49,9 +42,7 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Tạo danh mục mới.
-    /// POST /api/categories
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Tạo danh mục mới
     /// </summary>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCategoryRequest request)
@@ -72,9 +63,7 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật thông tin danh mục.
-    /// PUT /api/categories/{id}
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Cập nhật thông tin danh mục
     /// </summary>
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateCategoryRequest request)
@@ -101,9 +90,7 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Xóa danh mục (soft delete - đặt IsActive = false).
-    /// DELETE /api/categories/{id}
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Xóa danh mục (soft delete)
     /// </summary>
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
@@ -119,9 +106,7 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Khôi phục danh mục đã bị soft delete (đặt IsActive = true).
-    /// PATCH /api/categories/{id}/restore
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Khôi phục danh mục đã bị xóa
     /// </summary>
     [HttpPatch("{id}/restore")]
     public async Task<IActionResult> Restore(string id)

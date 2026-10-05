@@ -5,9 +5,6 @@ using REWEAR.Domain.Enums;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Controller xử lý Product (Quản lý sản phẩm secondhand/upcycled).
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class ProductsController : ControllerBase
@@ -20,16 +17,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả sản phẩm với filter/search.
-    /// GET /api/products
-    /// GET /api/products?isActive=true
-    /// GET /api/products?brandId={id}
-    /// GET /api/products?categoryId={id}
-    /// GET /api/products?condition=Good
-    /// GET /api/products?status=Available
-    /// GET /api/products?minPrice=200000&maxPrice=500000
-    /// GET /api/products?search=levis
-    /// Combinations allowed.
+    /// Lấy danh sách sản phẩm kèm bộ lọc và tìm kiếm
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] ProductQueryParameters query)
@@ -46,8 +34,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy thông tin sản phẩm theo Id.
-    /// GET /api/products/{id}
+    /// Lấy chi tiết một sản phẩm theo Id
     /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id)
@@ -63,9 +50,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Tạo sản phẩm mới.
-    /// POST /api/products
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Tạo sản phẩm mới kèm ảnh
     /// </summary>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateProductRequest request)
@@ -86,9 +71,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật thông tin sản phẩm.
-    /// PUT /api/products/{id}
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Cập nhật thông tin sản phẩm
     /// </summary>
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateProductRequest request)
@@ -115,9 +98,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Xóa sản phẩm (soft delete - đặt IsActive = false).
-    /// DELETE /api/products/{id}
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Xóa sản phẩm (soft delete, đặt IsActive = false)
     /// </summary>
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
@@ -133,9 +114,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Khôi phục sản phẩm đã bị soft delete (đặt IsActive = true).
-    /// PATCH /api/products/{id}/restore
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Khôi phục sản phẩm đã bị xóa
     /// </summary>
     [HttpPatch("{id}/restore")]
     public async Task<IActionResult> Restore(string id)
@@ -158,9 +137,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật trạng thái thương mại của sản phẩm.
-    /// PATCH /api/products/{id}/status
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Cập nhật trạng thái đăng bán của sản phẩm
     /// </summary>
     [HttpPatch("{id}/status")]
     public async Task<IActionResult> UpdateStatus(string id, [FromBody] UpdateProductStatusRequest request)

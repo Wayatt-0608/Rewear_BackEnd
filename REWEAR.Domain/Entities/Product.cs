@@ -54,6 +54,15 @@ public class Product
     public decimal Price { get; set; }
 
     /// <summary>
+    /// Số món còn lại trong listing này.
+    /// Quần áo secondhand thường là 1 món vật lý, nhưng cho phép seller đăng
+    /// nhiều món cùng kiểu (vd: 3 chiếc áo giống nhau) nên cần số tồn thực.
+    /// = 1 với hầu hết sản phẩm đơn lẻ.
+    /// </summary>
+    [BsonElement("stockQuantity")]
+    public int StockQuantity { get; set; } = 1;
+
+    /// <summary>
     /// Tình trạng sản phẩm secondhand.
     /// </summary>
     [BsonElement("condition")]

@@ -51,6 +51,12 @@ public class CreateProductRequest
     /// Danh sách URL hình ảnh.
     /// </summary>
     public List<string> ImageUrls { get; set; } = new();
+
+    /// <summary>
+    /// Số món còn lại (mặc định 1 - phần lớn sản phẩm secondhand là đơn lẻ).
+    /// Cho phép seller đăng nhiều món cùng kiểu (vd: 3 áo giống nhau).
+    /// </summary>
+    public int StockQuantity { get; set; } = 1;
 }
 
 /// <summary>
@@ -102,6 +108,11 @@ public class UpdateProductRequest
     /// Danh sách URL hình ảnh.
     /// </summary>
     public List<string> ImageUrls { get; set; } = new();
+
+    /// <summary>
+    /// Số món còn lại (phải >= 1). Sản phẩm hết hàng dùng Status = Sold.
+    /// </summary>
+    public int StockQuantity { get; set; } = 1;
 }
 
 /// <summary>
@@ -138,6 +149,12 @@ public class ProductResponse
     public List<string> ImageUrls { get; set; } = new();
     public ProductStatus Status { get; set; }
     public bool IsActive { get; set; }
+
+    /// <summary>
+    /// Số món còn lại trong listing (Task 5 checkout dùng để chốt tồn kho).
+    /// </summary>
+    public int StockQuantity { get; set; } = 1;
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

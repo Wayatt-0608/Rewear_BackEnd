@@ -2,6 +2,7 @@ using MongoDB.Driver;
 using REWEAR.Application.DTOs;
 using REWEAR.Application.Interfaces;
 using REWEAR.Domain.Entities;
+using REWEAR.Domain.Enums;
 using REWEAR.Infrastructure.Persistence;
 
 namespace REWEAR.Infrastructure.Repositories;
@@ -130,6 +131,101 @@ public class ProductRepository : IProductRepository
     {
         product.UpdatedAt = DateTime.UtcNow;
         await _products.ReplaceOneAsync(x => x.Id == product.Id, product);
+    }
+
+    /// <summary>
+    /// Chốt N món bằng atomic update: chỉ update được nếu sản phẩm vẫn Available,
+    /// IsActive và StockQuantity >= quantity. Nếu không thỏa thì trả về 0 (không đụng DB).
+    /// </summary>
+    /// <remarks>
+    /// Chuyển sang Reserved (không phải Sold) vì "hết hàng do đang được giữ" khác
+    /// hoàn toàn với "đã bán". Nếu đánh dấu Sold ngay, hủy đơn sẽ không thể trả
+    /// tồn kho lại (ReleaseStockAsync chỉ hoạt động với Available/Reserved).
+    /// Trạng thái Sold chỉ được đặt khi đơn thực sự hoàn tất (CommitStockAsync, Task 7).
+    /// </remarks>
+    public async Task<long> TryReserveStockAsync(string productId, int quantity)
+    {
+        if (quantity < 1) return 0;
+
+        var filter = Builders<Product>.Filter.And(
+            Builders<Product>.Filter.Eq(x => x.Id, productId),
+            Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Available),
+            Builders<Product>.Filter.Eq(x => x.IsActive, true),
+            Builders<Product>.Filter.Gte(x => x.StockQuantity, quantity)
+        );
+
+        var update = Builders<Product>.Update
+            .Inc(x => x.StockQuantity, -quantity)
+            .Set(x => x.Status, ProductStatus.Reserved)
+            .Set(x => x.UpdatedAt, DateTime.UtcNow);
+
+        var result = await _products.UpdateOneAsync(filter, update);
+        return result.ModifiedCount;
+    }
+
+    /// <summary>
+    /// Trả lại N món về kho (rollback khi checkout lỗi, hoặc khi hủy đơn).
+    /// </summary>
+    /// <remarks>
+    /// Chấp nhận cả Available và Reserved: sau khi checkout, sản phẩm luôn ở
+    /// trạng thái Reserved nên phải trả được về Available khi hủy đơn.
+    /// </remarks>
+    public async Task<long> ReleaseStockAsync(string productId, int quantity)
+    {
+        if (quantity < 1) return 0;
+
+        var filter = Builders<Product>.Filter.And(
+            Builders<Product>.Filter.Eq(x => x.Id, productId),
+            Builders<Product>.Filter.In(x => x.Status, new[] { ProductStatus.Available, ProductStatus.Reserved }),
+            // Không trả về kho cho sản phẩm đã bị gỡ khỏi cửa hàng.
+            Builders<Product>.Filter.Eq(x => x.IsActive, true)
+        );
+
+        var update = Builders<Product>.Update
+            .Inc(x => x.StockQuantity, quantity)
+            .Set(x => x.Status, ProductStatus.Available)
+            .Set(x => x.UpdatedAt, DateTime.UtcNow);
+
+        var result = await _products.UpdateOneAsync(filter, update);
+        return result.ModifiedCount;
+    }
+
+    /// <summary>
+    /// Hoàn tất bán N món (gọi khi đơn chuyển Confirmed/Delivered - Task 7).
+    /// Tồn kho đã bị trừ lúc Reserve nên bước này chỉ chốt lại trạng thái:
+    /// hết tồn thì Sold (không ai mua được nữa), còn hàng thì Available
+    /// (các món chưa bán của cùng listing vẫn mua được).
+    /// </summary>
+    public async Task<long> CommitStockAsync(string productId, int quantity)
+    {
+        if (quantity < 1) return 0;
+
+        // Hết tồn -> Sold. Điều kiện Status = Reserved để không ghi đè
+        // trạng thái của một giao dịch khác đang xử lý.
+        var soldResult = await _products.UpdateOneAsync(
+            Builders<Product>.Filter.And(
+                Builders<Product>.Filter.Eq(x => x.Id, productId),
+                Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Reserved),
+                Builders<Product>.Filter.Lte(x => x.StockQuantity, 0)
+            ),
+            Builders<Product>.Update
+                .Set(x => x.Status, ProductStatus.Sold)
+                .Set(x => x.UpdatedAt, DateTime.UtcNow)
+        );
+
+        // Còn tồn -> Available (listing nhiều món vẫn bán tiếp được).
+        var availableResult = await _products.UpdateOneAsync(
+            Builders<Product>.Filter.And(
+                Builders<Product>.Filter.Eq(x => x.Id, productId),
+                Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Reserved),
+                Builders<Product>.Filter.Gt(x => x.StockQuantity, 0)
+            ),
+            Builders<Product>.Update
+                .Set(x => x.Status, ProductStatus.Available)
+                .Set(x => x.UpdatedAt, DateTime.UtcNow)
+        );
+
+        return soldResult.ModifiedCount + availableResult.ModifiedCount;
     }
 
     /// <summary>

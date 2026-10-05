@@ -53,32 +53,35 @@
 - [x] Middleware for role checking (RoleCheckingMiddleware)
 
 ### Task 4: Cart
-- [ ] Cart entity (UserId, Items)
-- [ ] CartItem entity (ProductId, VariantId, Quantity)
-- [ ] Add to cart
-- [ ] Update quantity
-- [ ] Remove from cart
-- [ ] Clear cart
-- [ ] Get cart with product details
-- [ ] Cart expiration handling
+- [x] Cart entity (UserId, Items)
+- [x] CartItem entity (ProductId, Quantity)
+- [x] Add to cart
+- [x] Update quantity
+- [x] Remove from cart
+- [x] Clear cart
+- [x] Get cart with product details
+- [x] Cart expiration handling
+- [x] Tick chọn từng món (IsSelected) — mua theo nhóm đã tick, giống Shopee
+- [x] Tick chọn / bỏ chọn cả giỏ
+- [x] Dọn rác món "chết" (sản phẩm đã xóa khỏi catalog)
 
 ### Task 5: Checkout
-- [ ] Checkout DTO (shipping address, payment method)
-- [ ] Cart validation
-- [ ] Inventory check before checkout
-- [ ] Order creation from cart
-- [ ] Clear cart after checkout
+- [x] Checkout DTO (shipping address, payment method)
+- [x] Cart validation
+- [x] Inventory check before checkout
+- [x] Order creation from cart
+- [x] Clear cart after checkout
 - [ ] Apply voucher (Task 10)
 
 ### Task 6: Order Management
-- [ ] Order entity (OrderId, UserId, Items, Total, Status)
-- [ ] OrderItem entity (ProductId, VariantId, Quantity, Price)
-- [ ] Order status enum (Pending, Confirmed, Shipping, Delivered, Cancelled)
-- [ ] Create order
-- [ ] Get order by user
-- [ ] Get order detail
-- [ ] Cancel order
-- [ ] Order history
+- [x] Order entity (OrderId, UserId, Items, Total, Status)
+- [x] OrderItem entity (ProductId, Quantity, Price)
+- [x] Order status enum (Pending, Confirmed, Shipping, Delivered, Cancelled)
+- [x] Create order
+- [x] Get order by user
+- [x] Get order detail
+- [x] Cancel order
+- [x] Order history
 
 ### Task 7: Order Status / Tracking
 - [ ] Order tracking entity
@@ -173,78 +176,6 @@
 
 ---
 
-## 📂 Architecture Layers
-
-```
-REWEAR.BackEnd/
-├── REWEAR.Domain/
-│   └── Entities/
-│       ├── User.cs (extended)
-│       ├── Address.cs
-│       ├── Cart.cs
-│       ├── CartItem.cs
-│       ├── Order.cs
-│       ├── OrderItem.cs
-│       ├── Payment.cs
-│       ├── Shipping.cs
-│       ├── Voucher.cs
-│       ├── Review.cs
-│       ├── ReturnRequest.cs
-│       ├── LoyaltyPoint.cs
-│       ├── Promotion.cs
-│       ├── Notification.cs
-│       └── Follow.cs
-│
-├── REWEAR.Application/
-│   ├── DTOs/
-│   │   ├── AuthDTOs.cs (extend)
-│   │   ├── AddressDTOs.cs
-│   │   ├── CartDTOs.cs
-│   │   ├── OrderDTOs.cs
-│   │   ├── PaymentDTOs.cs
-│   │   ├── VoucherDTOs.cs
-│   │   ├── ReviewDTOs.cs
-│   │   └── ...
-│   ├── Interfaces/
-│   │   ├── IAuthService.cs (extend)
-│   │   ├── ICartService.cs
-│   │   ├── IOrderService.cs
-│   │   ├── IPaymentService.cs
-│   │   └── ...
-│   └── Services/
-│       ├── AuthService.cs (extend)
-│       ├── CartService.cs
-│       ├── OrderService.cs
-│       └── ...
-│
-├── REWEAR.Infrastructure/
-│   ├── Persistence/
-│   │   └── MongoDbContext.cs (extend collections)
-│   ├── Repositories/
-│   │   ├── UserRepository.cs (extend)
-│   │   ├── OrderRepository.cs
-│   │   ├── CartRepository.cs
-│   │   └── ...
-│   └── Services/
-│       ├── JwtService.cs
-│       ├── PaymentGateway/VNPayService.cs
-│       ├── ShippingService.cs
-│       └── ...
-│
-└── REWEAR.API/
-    └── Controllers/
-        ├── AuthController.cs (extend)
-        ├── UsersController.cs
-        ├── CartController.cs
-        ├── OrdersController.cs
-        ├── PaymentsController.cs
-        ├── VouchersController.cs
-        ├── ReviewsController.cs
-        └── ...
-```
-
----
-
 ## 🚀 Order of Implementation
 
 ### Phase 1: Foundation (Week 1)
@@ -253,9 +184,9 @@ REWEAR.BackEnd/
 - [ ] Task 3: Role & Authorization
 
 ### Phase 2: Shopping Flow (Week 2)
-- [ ] Task 4: Cart
-- [ ] Task 5: Checkout
-- [ ] Task 6: Order Management
+- [x] Task 4: Cart
+- [x] Task 5: Checkout
+- [x] Task 6: Order Management
 
 ### Phase 3: Order Fulfillment (Week 3)
 - [ ] Task 7: Order Status / Tracking
@@ -285,4 +216,62 @@ REWEAR.BackEnd/
 - Use MongoDB collections for all entities
 - Follow Clean Architecture pattern
 - JWT auth for all protected endpoints
-- Return standardized API responses
+- Return standardized API responses (`ApiResponse`: `success` / `message` / `data` / `errorCode`)
+
+### 🔌 Endpoints (base URL: `http://localhost:5000`)
+
+| Method | Route | Auth | Mô tả |
+|---|---|---|---|
+| POST | `/api/auth/register` | Public | Đăng ký (gửi OTP xác minh email) |
+| POST | `/api/auth/verify-otp` | Public | Xác minh OTP |
+| POST | `/api/auth/login` | Public | Đăng nhập, trả JWT |
+| POST | `/api/auth/forgot-password` | Public | Gửi email reset password |
+| POST | `/api/auth/reset-password` | Public | Đặt lại mật khẩu |
+| GET | `/api/cart` | JWT | Lấy giỏ hàng (kèm chi tiết sản phẩm) |
+| GET | `/api/cart/count` | JWT | Số lượng món trong giỏ |
+| POST | `/api/cart` | JWT | Thêm món vào giỏ (mặc định tick chọn) |
+| PUT | `/api/cart/items/{itemId}` | JWT | Cập nhật số lượng |
+| PUT | `/api/cart/items/{itemId}/select` | JWT | Tick / bỏ tick một món |
+| PUT | `/api/cart/items/select-all` | JWT | Tick / bỏ tick cả giỏ |
+| DELETE | `/api/cart/items/{itemId}` | JWT | Xóa một mục |
+| DELETE | `/api/cart` | JWT | Xóa toàn bộ giỏ |
+| POST | `/api/orders/checkout` | JWT | Đặt hàng từ nhóm món đã tick |
+| GET | `/api/orders` | JWT | Lịch sử đơn (có phân trang/lọc) |
+| GET | `/api/orders/{id}` | JWT | Chi tiết đơn |
+| GET | `/api/orders/code/{orderCode}` | JWT | Tra đơn bằng mã đơn |
+| PUT | `/api/orders/{id}/cancel` | JWT | Huỷ đơn |
+| GET | `/api/profile` | JWT | Thông tin cá nhân |
+| PUT | `/api/profile` | JWT | Cập nhật thông tin cá nhân |
+| PUT | `/api/profile/avatar` | JWT | Cập nhật ảnh đại diện (multipart) |
+| GET | `/api/profile/addresses` | JWT | Danh sách địa chỉ |
+| GET | `/api/profile/addresses/{id}` | JWT | Chi tiết một địa chỉ |
+| POST | `/api/profile/addresses` | JWT | Thêm địa chỉ |
+| PUT | `/api/profile/addresses/{id}` | JWT | Cập nhật địa chỉ |
+| DELETE | `/api/profile/addresses/{id}` | JWT | Xóa địa chỉ |
+| PUT | `/api/profile/addresses/{id}/default` | JWT | Đặt làm địa chỉ mặc định |
+| GET | `/api/products` | Public | Danh sách sản phẩm (lọc/phân trang) |
+| POST | `/api/products` | Admin | Tạo sản phẩm |
+| GET | `/api/products/{id}` | Public | Chi tiết sản phẩm |
+| PUT | `/api/products/{id}` | Admin | Cập nhật sản phẩm |
+| DELETE | `/api/products/{id}` | Admin | Xóa (soft delete) |
+| PATCH | `/api/products/{id}/restore` | Admin | Khôi phục |
+| PATCH | `/api/products/{id}/status` | Admin | Đổi trạng thái |
+| GET | `/api/brands` | Public | Danh sách thương hiệu |
+| POST | `/api/brands` | Admin | Tạo thương hiệu |
+| GET | `/api/brands/{id}` | Public | Chi tiết thương hiệu |
+| PUT | `/api/brands/{id}` | Admin | Cập nhật thương hiệu |
+| DELETE | `/api/brands/{id}` | Admin | Xóa (soft delete) |
+| PATCH | `/api/brands/{id}/restore` | Admin | Khôi phục |
+| GET | `/api/categories` | Public | Danh sách danh mục |
+| POST | `/api/categories` | Admin | Tạo danh mục |
+| GET | `/api/categories/{id}` | Public | Chi tiết danh mục |
+| PUT | `/api/categories/{id}` | Admin | Cập nhật danh mục |
+| DELETE | `/api/categories/{id}` | Admin | Xóa (soft delete) |
+| PATCH | `/api/categories/{id}/restore` | Admin | Khôi phục |
+| GET | `/api/admin/users` | Admin + `users.read` | Danh sách người dùng |
+| GET | `/api/admin/users/{id}` | Admin + `users.read` | Chi tiết người dùng |
+| PUT | `/api/admin/users/{id}/role` | Admin + `users.update_role` | Đổi vai trò |
+| DELETE | `/api/admin/users/{id}` | Admin + `users.delete` | Xoá người dùng |
+
+> **Lưu ý:** mọi endpoint trừ `/api/auth/*` đều cần header `Authorization: Bearer <token>`.
+> `paymentMethod` hiện chỉ dùng `"COD"` (các phương thức online sẽ xử lý ở Task 8).

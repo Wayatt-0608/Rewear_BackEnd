@@ -5,9 +5,6 @@ using REWEAR.Application.Interfaces;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Controller xử lý Authentication (Đăng ký, Đăng nhập, Xác thực OTP).
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
@@ -20,8 +17,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Đăng ký tài khoản mới và gửi OTP qua email.
-    /// POST /api/auth/register
+    /// Đăng ký tài khoản mới và gửi OTP về email
     /// </summary>
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -37,8 +33,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Kích hoạt tài khoản bằng mã OTP.
-    /// POST /api/auth/verify-otp
+    /// Kích hoạt tài khoản bằng mã OTP
     /// </summary>
     [HttpPost("verify-otp")]
     public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpRequest request)
@@ -54,8 +49,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Đăng nhập (chỉ tài khoản đã xác thực mới được đăng nhập).
-    /// POST /api/auth/login
+    /// Đăng nhập bằng email và mật khẩu
     /// </summary>
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
@@ -71,9 +65,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Gửi OTP đặt lại mật khẩu.
-    /// POST /api/auth/forgot-password
-    /// Body: { "email": "user@example.com" }
+    /// Gửi OTP đặt lại mật khẩu
     /// </summary>
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
@@ -85,9 +77,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Đặt lại mật khẩu bằng OTP.
-    /// POST /api/auth/reset-password
-    /// Body: { "email": "user@example.com", "otpCode": "123456", "newPassword": "...", "newPasswordConfirm": "..." }
+    /// Đặt lại mật khẩu bằng mã OTP
     /// </summary>
     [HttpPost("reset-password")]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
@@ -103,8 +93,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả users (để test).
-    /// GET /api/auth/users
+    /// Lấy danh sách tất cả người dùng (chỉ dùng để test)
     /// </summary>
     [HttpGet("users")]
     public async Task<IActionResult> GetAllUsers([FromServices] IUserRepository userRepository)

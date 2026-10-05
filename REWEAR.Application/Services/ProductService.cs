@@ -216,6 +216,7 @@ public class ProductService : IProductService
             Size = request.Size?.Trim(),
             Color = request.Color?.Trim(),
             ImageUrls = request.ImageUrls ?? new List<string>(),
+            StockQuantity = request.StockQuantity < 1 ? 1 : request.StockQuantity,
             Status = ProductStatus.Available,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
@@ -264,6 +265,13 @@ public class ProductService : IProductService
         if (request.Price <= 0)
         {
             throw new ArgumentException("Giá sản phẩm phải lớn hơn 0.");
+        }
+
+        // Stock validation: phải >= 1. Sản phẩm hết hàng được quản lý bằng
+        // Status = Sold, nên tồn kho = 0 là trạng thái không hợp lệ khi sửa.
+        if (request.StockQuantity < 1)
+        {
+            throw new ArgumentException("Số lượng tồn kho phải lớn hơn 0.");
         }
 
         // Brand validation
@@ -328,6 +336,7 @@ public class ProductService : IProductService
         product.Size = request.Size?.Trim();
         product.Color = request.Color?.Trim();
         product.ImageUrls = request.ImageUrls ?? new List<string>();
+        product.StockQuantity = request.StockQuantity;
         // KHÔNG update Status và IsActive ở đây
         product.UpdatedAt = DateTime.UtcNow;
 
@@ -539,6 +548,7 @@ public class ProductService : IProductService
             ImageUrls = product.ImageUrls,
             Status = product.Status,
             IsActive = product.IsActive,
+            StockQuantity = product.StockQuantity,
             CreatedAt = product.CreatedAt,
             UpdatedAt = product.UpdatedAt
         };

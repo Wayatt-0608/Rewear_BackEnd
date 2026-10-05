@@ -43,4 +43,26 @@ public interface IProductRepository
     /// Cập nhật sản phẩm.
     /// </summary>
     Task UpdateAsync(Product product);
+
+    /// <summary>
+    /// Chốt (reserve) N món của một sản phẩm bằng atomic update.
+    /// Chỉ thành công khi sản phẩm vẫn Available, IsActive và còn đủ tồn kho.
+    /// Dùng cho bước Checkout (Task 5) để tránh 2 người cùng mua 1 món.
+    /// </summary>
+    /// <returns>Số document được update (0 = đã có người khác mua trước / hết hàng).</returns>
+    Task<long> TryReserveStockAsync(string productId, int quantity);
+
+    /// <summary>
+    /// Trả lại N món về kho khi checkout thất bại hoặc đơn bị hủy.
+    /// Chuyển status Sold về Available nếu hết lý do bị bán.
+    /// </summary>
+    /// <returns>Số document được update.</returns>
+    Task<long> ReleaseStockAsync(string productId, int quantity);
+
+    /// <summary>
+    /// Hoàn tất bán: ghi nhận đã bán N món (trừ tồn, chuyển status sang Sold nếu hết hàng).
+    /// Dùng khi đơn chuyển sang Confirmed / Delivered.
+    /// </summary>
+    /// <returns>Số document được update.</returns>
+    Task<long> CommitStockAsync(string productId, int quantity);
 }

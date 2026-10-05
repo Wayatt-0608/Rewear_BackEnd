@@ -4,9 +4,6 @@ using REWEAR.Application.Interfaces;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Controller xử lý Brand (Quản lý thương hiệu).
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class BrandsController : ControllerBase
@@ -19,10 +16,7 @@ public class BrandsController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả thương hiệu.
-    /// GET /api/brands
-    /// GET /api/brands?isActive=true
-    /// GET /api/brands?isActive=false
+    /// Lấy danh sách thương hiệu (lọc theo isActive)
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] bool? isActive)
@@ -32,8 +26,7 @@ public class BrandsController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy thông tin thương hiệu theo Id.
-    /// GET /api/brands/{id}
+    /// Lấy chi tiết một thương hiệu
     /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id)
@@ -49,9 +42,7 @@ public class BrandsController : ControllerBase
     }
 
     /// <summary>
-    /// Tạo thương hiệu mới.
-    /// POST /api/brands
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Tạo thương hiệu mới
     /// </summary>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateBrandRequest request)
@@ -72,9 +63,7 @@ public class BrandsController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật thông tin thương hiệu.
-    /// PUT /api/brands/{id}
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Cập nhật thông tin thương hiệu
     /// </summary>
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateBrandRequest request)
@@ -101,9 +90,7 @@ public class BrandsController : ControllerBase
     }
 
     /// <summary>
-    /// Xóa thương hiệu (soft delete - đặt IsActive = false).
-    /// DELETE /api/brands/{id}
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Xóa thương hiệu (soft delete)
     /// </summary>
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
@@ -119,9 +106,7 @@ public class BrandsController : ControllerBase
     }
 
     /// <summary>
-    /// Khôi phục thương hiệu đã bị soft delete (đặt IsActive = true).
-    /// PATCH /api/brands/{id}/restore
-    /// TODO: Thêm [Authorize] sau khi có Role system.
+    /// Khôi phục thương hiệu đã bị xóa
     /// </summary>
     [HttpPatch("{id}/restore")]
     public async Task<IActionResult> Restore(string id)
