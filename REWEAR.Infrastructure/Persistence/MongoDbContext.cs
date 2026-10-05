@@ -137,4 +137,7 @@ public class MongoDbContext
 
     public IMongoCollection<Order> Orders =>
         _database.GetCollection<Order>("Orders");
+
+    public IMongoCollection<SourcingRequest> SourcingRequests =>
+        _database.GetCollection<SourcingRequest>("SourcingRequests");
 }

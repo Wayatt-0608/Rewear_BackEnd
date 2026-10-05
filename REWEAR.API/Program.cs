@@ -60,6 +60,7 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ICategoryRepository, Ca
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductRepository, ProductRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICartRepository, CartRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingRepository, SourcingRepository>();
 
 // Đăng ký Services
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IAuthService, REWEAR.Application.Services.AuthService>();
@@ -71,6 +72,7 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ICategoryService, REWEA
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductService, REWEAR.Application.Services.ProductService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICartService, REWEAR.Application.Services.CartService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderService, REWEAR.Application.Services.OrderService>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEAR.Application.Services.SourcingService>();
 
 // ====== JWT AUTHENTICATION ======
 builder.Services.AddAuthentication(options =>
