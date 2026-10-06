@@ -69,7 +69,9 @@ var payOsSettings = new PayOsSettings
     ClientId = builder.Configuration.GetSection("PayOs:ClientId").Value ?? "",
     ApiKey = builder.Configuration.GetSection("PayOs:ApiKey").Value ?? "",
     ChecksumKey = builder.Configuration.GetSection("PayOs:ChecksumKey").Value ?? "",
-    BaseUrl = builder.Configuration.GetSection("PayOs:BaseUrl").Value ?? "https://api-beta.payos.vn",
+    // Mặc định dùng PRODUCTION URL (api.payos.vn) - ổn định hơn sandbox.
+    // Sandbox (api-beta.payos.vn) hay bị DNS issue.
+    BaseUrl = builder.Configuration.GetSection("PayOs:BaseUrl").Value ?? "https://api.payos.vn",
     AppBaseUrl = builder.Configuration.GetSection("PayOs:AppBaseUrl").Value ?? "",
     ExpirationMinutes = builder.Configuration.GetValue("PayOs:ExpirationMinutes", 15)
 };
@@ -123,20 +125,60 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IPayOsService>(sp =>
         AllowAutoRedirect = false,
         ConnectCallback = async (context, cancellationToken) =>
         {
-            // Nếu đang kết nối đến api.payos.vn → Cloudflare IP thật của PayOS.
-            // Lý do: api.payos.vn có thể không resolve được trên môi trường này
-            // (bị ISP/VN chặn DNS), nhưng Cloudflare vẫn nhận request nếu kết nối
-            // thẳng đến IP + đúng Host header.
-            if (context.DnsEndPoint.Host.Equals("api.payos.vn", StringComparison.OrdinalIgnoreCase))
+            // Nếu đang kết nối đến api.payos.vn HOẶC api-beta.payos.vn
+            // → dùng IP Cloudflare thật của PayOS.
+            //
+            // Lý do: cả 2 domain có thể không resolve được DNS trên môi trường
+            // Render Singapore (bị ISP/VN chặn DNS, hoặc sandbox geo-block).
+            // Cloudflare vẫn nhận request nếu kết nối thẳng đến IP + đúng Host header.
+            //
+            // Cloudflare sở hữu dải IP rất lớn. Thử vài IP phổ biến:
+            // 104.21.0.0/16 và 172.67.0.0/16.
+            var host = context.DnsEndPoint.Host;
+            if (host.Equals("api.payos.vn", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("api-beta.payos.vn", StringComparison.OrdinalIgnoreCase))
             {
-                var socket = new System.Net.Sockets.Socket(
-                    System.Net.Sockets.AddressFamily.InterNetwork,
-                    System.Net.Sockets.SocketType.Stream,
-                    System.Net.Sockets.ProtocolType.Tcp);
-                await socket.ConnectAsync(
-                    new System.Net.IPEndPoint(
-                        System.Net.IPAddress.Parse("104.21.40.122"), 443),
-                    cancellationToken);
+                // Thử các IP Cloudflare cho PayOS (có thể xoay vòng).
+                string[] cloudflareIPs =
+                {
+                    "104.21.40.122",  // IP cũ - vẫn hoạt động
+                    "104.21.65.122",  // IP backup 1
+                    "172.67.155.122", // IP backup 2
+                };
+
+                System.Net.Sockets.Socket? socket = null;
+                System.Net.Sockets.SocketException? lastError = null;
+
+                foreach (var ip in cloudflareIPs)
+                {
+                    try
+                    {
+                        socket = new System.Net.Sockets.Socket(
+                            System.Net.Sockets.AddressFamily.InterNetwork,
+                            System.Net.Sockets.SocketType.Stream,
+                            System.Net.Sockets.ProtocolType.Tcp);
+                        await socket.ConnectAsync(
+                            new System.Net.IPEndPoint(
+                                System.Net.IPAddress.Parse(ip), 443),
+                            cancellationToken);
+                        lastError = null;
+                        break;  // Kết nối thành công, thoát vòng lặp
+                    }
+                    catch (System.Net.Sockets.SocketException ex)
+                    {
+                        lastError = ex;
+                        socket?.Dispose();
+                        socket = null;
+                        // Thử IP tiếp theo
+                    }
+                }
+
+                if (socket == null)
+                {
+                    throw lastError ?? new System.Net.Sockets.SocketException(
+                        (int)System.Net.Sockets.SocketError.HostNotFound);
+                }
+
                 // SocketsHttpHandler sẽ tự động bắt tay TLS trên stream này.
                 return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
             }

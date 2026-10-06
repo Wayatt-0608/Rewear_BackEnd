@@ -41,23 +41,30 @@ public class PayOsService : IPayOsService
         // PayOS dùng đơn vị tiền tệ là VND (số nguyên).
         long amountVnd = (long)Math.Round(amount, 0, MidpointRounding.AwayFromZero);
 
-        // Số thứ tự giao dịch tăng dần theo yêu cầu của PayOS.
-        int orderNo = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % int.MaxValue);
+        // orderCode phải là SỐ NGUYÊN. Convert từ "RW-20261006-A64A25" → số.
+        // Lấy 9 số cuối của hash orderCode để đảm bảo unique.
+        int numericOrderCode = Math.Abs(orderCode.GetHashCode() % 1_000_000_000);
+        if (numericOrderCode < 100000) numericOrderCode += 1_000_000;  // đảm bảo > 6 chữ số
+
+        // PayOS yêu cầu signature cho cả body request (HMAC-SHA256).
+        // Công thức: signature = HMAC_SHA256(checksumKey, sorted(key=value)&...)
+        // Với create-payment: amount=$amount&cancelUrl=$cancelUrl&description=$description
+        //                    &orderCode=$orderCode&returnUrl=$returnUrl
+        string description = $"Thanh toan don {orderCode}";
+        string signatureData = $"amount={amountVnd}&cancelUrl={cancelUrl}&description={description}" +
+                               $"&orderCode={numericOrderCode}&returnUrl={returnUrl}";
+        string signature = ComputeHmacSha256(_settings.ChecksumKey, signatureData);
 
         var payload = new Dictionary<string, object>
         {
-            ["partnerCode"] = _settings.ClientId,
-            ["partnerName"] = "REWEAR",
-            ["orderCode"] = orderCode,
-            ["orderNo"] = orderNo.ToString(),
+            ["orderCode"] = numericOrderCode,
             ["amount"] = amountVnd,
-            ["currency"] = "VND",
-            ["description"] = $"Thanh toan don hang {orderCode}",
+            ["description"] = description,
             ["returnUrl"] = returnUrl,
             ["cancelUrl"] = cancelUrl,
-            // Hết hạn ở phía PayOS: khách không thể thanh toán sau mốc này dù
-            // hệ thống bên ta có xử lý chậm.
-            ["expiredAt"] = expiredAt.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            ["signature"] = signature,
+            // Hết hạn ở phía PayOS: Unix timestamp (seconds).
+            ["expiredAt"] = new DateTimeOffset(expiredAt.ToUniversalTime()).ToUnixTimeSeconds()
         };
 
         try
@@ -68,8 +75,8 @@ public class PayOsService : IPayOsService
             {
                 var body = await response.Content.ReadAsStringAsync();
                 _logger.LogError(
-                    "PayOS create payment request that bai voi ma don {OrderCode}. Status: {Status}, Body: {Body}, ClientId: {ClientId}",
-                    orderCode, (int)response.StatusCode, body, _settings.ClientId);
+                    "PayOS create payment request that bai voi ma don {OrderCode}. Status: {Status}, Body: {Body}",
+                    orderCode, (int)response.StatusCode, body);
                 return null;
             }
 
@@ -91,6 +98,17 @@ public class PayOsService : IPayOsService
             _logger.LogError(ex, "Loi khi goi PayOS tao payment request cho don {OrderCode}", orderCode);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Tính HMAC-SHA256 signature cho PayOS.
+    /// </summary>
+    private static string ComputeHmacSha256(string key, string data)
+    {
+        using var hmac = new System.Security.Cryptography.HMACSHA256(
+            System.Text.Encoding.UTF8.GetBytes(key));
+        var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     /// <summary>
@@ -141,14 +159,24 @@ public class PayOsService : IPayOsService
     /// </summary>
     public async Task<PayOsRefundResult> RefundAsync(string transactionId, string? reason)
     {
+        // Signature cho refund: amount=... (optional) & description=... & transactionId=...
+        // Nếu không truyền amount thì PayOS hoàn toàn bộ.
+        // Format: signature = HMAC_SHA256(checksumKey, "transactionId=xxx")
+        string signatureData = $"transactionId={transactionId}";
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            signatureData = $"description={reason}&{signatureData}";
+        }
+        string signature = ComputeHmacSha256(_settings.ChecksumKey, signatureData);
+
         var payload = new Dictionary<string, object>
         {
-            ["partnerCode"] = _settings.ClientId,
-            ["transactionId"] = transactionId
+            ["transactionId"] = transactionId,
+            ["signature"] = signature
         };
 
         if (!string.IsNullOrWhiteSpace(reason))
-            payload["reason"] = reason;
+            payload["description"] = reason;
 
         try
         {
@@ -200,9 +228,10 @@ public class PayOsService : IPayOsService
     {
         var request = new HttpRequestMessage(method, $"{_settings.BaseUrl}{path}");
 
-        // Header xác thực: partnerCode:apiKey
-        request.Headers.TryAddWithoutValidation(
-            "Authorization", $"{_settings.ClientId}:{_settings.ApiKey}");
+        // PayOS dùng 2 header riêng thay vì Authorization.
+        // Docs: https://payos.vn/docs/api/
+        request.Headers.TryAddWithoutValidation("x-client-id", _settings.ClientId);
+        request.Headers.TryAddWithoutValidation("x-api-key", _settings.ApiKey);
 
         // User-Agent hợp lệ: Cloudflare origin có thể block request không có UA
         // hoặc có UA giống bot (.NET HttpClient default).
