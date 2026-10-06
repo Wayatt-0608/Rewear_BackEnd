@@ -265,10 +265,19 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Mount Swagger cho CA Development va Production de co the test truc tiep tren fly.io.
+// Neu muon gioi han theo IP hoac role, them middleware o day.
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Rewear API v1");
+    c.RoutePrefix = "swagger"; // URL: /swagger
+});
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    // Development co them developer-friendly middleware (chi tiet loi, ...)
+    // Swagger da duoc mount o tren roi.
 }
 
 app.UseAuthentication();  // JWT Authentication
