@@ -115,7 +115,7 @@ public class PaymentService : IPaymentService
             }, null);
         }
 
-        payment.PayOsTransactionId = result.Id;
+        payment.PayOsTransactionId = result.PaymentLinkId;
         payment.PaymentLinkId = result.PaymentLinkId;
         payment.CheckoutUrl = result.CheckoutUrl;
         payment.QrCodeUrl = result.QrCode;
@@ -191,6 +191,11 @@ public class PaymentService : IPaymentService
         payment.UpdatedAt = DateTime.UtcNow;
 
         await _paymentRepository.UpdateAsync(payment);
+
+        // ✅ Ghi log rõ ràng để audit trail khi có tranh chấp.
+        _logger.LogInformation(
+            "PAYMENT SUCCESS: don {OrderCode}, amount={Amount}, transactionId={TransactionId}",
+            order.OrderCode, amount, transactionId);
 
         // Chuyển đơn sang Confirmed. Sản phẩm VẪN giữ ở Reserved: chỉ khi giao
         // thành công mới chốt Sold, để việc hủy/hoàn tiền còn trả kho được.
@@ -329,11 +334,24 @@ public class PaymentService : IPaymentService
         if (info == null)
             return false;
 
-        if (string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase)
+            || (info.PaidAmount > 0 && info.PaidAmount >= payment.Amount))
         {
-            _logger.LogInformation(
-                "Doi soat thanh cong don {OrderCode}: PayOS da ghi nhan tien.",
-                order.OrderCode);
+            // ✅ Trường hợp quan trọng: PayOS trả EXPIRED/CANCELLED nhưng thực tế
+            // paidAmount > 0 nghĩa là khách ĐÃ TRẢ TIỀN. Phải chốt đơn PAID ngay.
+            if (!string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "PayOS tra ve status={Status} nhung paidAmount={Amount} > 0 cho don {OrderCode}. " +
+                    "Xu ly nhu PAID de tranh mat tien khach.",
+                    info.Status, info.PaidAmount, order.OrderCode);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Doi soat thanh cong don {OrderCode}: PayOS da ghi nhan tien.",
+                    order.OrderCode);
+            }
 
             var result = await HandleWebhookSuccessAsync(
                 order.OrderCode, info.Id, info.PaidAmount);
@@ -341,7 +359,7 @@ public class PaymentService : IPaymentService
             return result.Success;
         }
 
-        // Khách huỷ hoặc phiên hết hạn trên PayOS: đối soát chủ động từ FE.
+        // Khách huỷ hoặc phiên hết hạn trên PayOS (chưa nhận tiền).
         // Xử lý luôn để FE không phải đợi background service chạy.
         if (string.Equals(info.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase)
             || string.Equals(info.Status, "EXPIRED", StringComparison.OrdinalIgnoreCase))
@@ -445,8 +463,21 @@ public class PaymentService : IPaymentService
             order.OrderCode, info.Status, info.PaidAmount);
 
         // Xử lý theo status từ PayOS.
-        if (string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
+        // ✅ QUAN TRỌNG: ưu tiên PAID khi paidAmount > 0, kể cả khi status là EXPIRED/CANCELLED
+        // (PayOS đôi khi trả EXPIRED nhưng vẫn ghi nhận tiền trong cùng session).
+        // Tính amount đang chờ để so sánh.
+        decimal expectedAmount = payment.Amount;
+        if (string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase)
+            || (info.PaidAmount > 0 && info.PaidAmount >= expectedAmount))
         {
+            if (!string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "Reconcile: PayOS status={Status} nhung paidAmount={Amount} cho don {OrderCode}. " +
+                    "Xu ly nhu PAID.",
+                    info.Status, info.PaidAmount, order.OrderCode);
+            }
+
             var result = await HandleWebhookSuccessAsync(
                 order.OrderCode, info.Id, info.PaidAmount);
             if (!result.Success)

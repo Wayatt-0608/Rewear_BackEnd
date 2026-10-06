@@ -128,11 +128,26 @@ public class PayOsService : IPayOsService
                 return null;
             }
 
+            // Mapping theo docs PayOS https://payos.vn/docs/api:
+            //   data.id            = paymentLinkId (string UUID) - DÙNG ĐỂ TRA CỨU
+            //   data.paymentLinkId = paymentLinkId (alias, một số version trả về)
+            //   data.orderCode     = numeric orderCode (số nguyên)
+            //
+            // Lấy paymentLinkId từ field `id` (mặc định) hoặc `paymentLinkId` (alias).
+            string paymentLinkId = "";
+            if (data.TryGetProperty("id", out var id))
+                paymentLinkId = id.GetString() ?? "";
+            else if (data.TryGetProperty("paymentLinkId", out var link))
+                paymentLinkId = link.GetString() ?? "";
+
+            // orderCode là số nguyên do backend gửi lên.
+            string orderCodeStr = data.TryGetProperty("orderCode", out var oc)
+                ? oc.ToString() : "";
+
             return new PayOsCreateResult
             {
-                Id = data.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "",
-                PaymentLinkId = data.TryGetProperty("paymentLinkId", out var link)
-                    ? link.GetString() ?? "" : "",
+                Id = paymentLinkId,
+                PaymentLinkId = paymentLinkId,
                 CheckoutUrl = data.TryGetProperty("checkoutUrl", out var url) ? url.GetString() ?? "" : "",
                 QrCode = data.TryGetProperty("qrCode", out var qr) ? qr.GetString() : null
             };
