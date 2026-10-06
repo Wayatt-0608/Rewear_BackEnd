@@ -50,7 +50,23 @@ public class PayOsService : IPayOsService
         //   signature = HMAC_SHA256(checksumKey,
         //     "amount={amount}&cancelUrl={url}&description={desc}&orderCode={code}&returnUrl={url}")
         // Thứ tự alphabet BẮT BUỘC: amount, cancelUrl, description, orderCode, returnUrl
-        string description = $"Thanh toan don {orderCode}";
+        // PayOS giới hạn description TỐI ĐA 25 ký tự (không tính khoảng trắng thừa).
+        // Mã đơn của ta có dạng "RW-20261006-ECE95D" = 18 ký tự.
+        // Format gọn: "DH RW-XXX" (chỉ lấy phần cuối của orderCode).
+        // Ví dụ: RW-20261006-ECE95D → "DH ECE95D" = 9 ký tự.
+        string shortOrderId = orderCode;
+        var lastDash = orderCode.LastIndexOf('-');
+        if (lastDash >= 0 && lastDash < orderCode.Length - 1)
+        {
+            shortOrderId = orderCode[(lastDash + 1)..];
+        }
+        string description = $"DH {shortOrderId}".Trim();
+
+        // Đảm bảo description không vượt quá 25 ký tự (phòng trường hợp shortOrderId dài bất thường).
+        if (description.Length > 25)
+        {
+            description = description[..25];
+        }
         string signatureData =
             $"amount={amountVnd}" +
             $"&cancelUrl={cancelUrl}" +
