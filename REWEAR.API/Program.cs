@@ -69,9 +69,9 @@ var payOsSettings = new PayOsSettings
     ClientId = builder.Configuration.GetSection("PayOs:ClientId").Value ?? "",
     ApiKey = builder.Configuration.GetSection("PayOs:ApiKey").Value ?? "",
     ChecksumKey = builder.Configuration.GetSection("PayOs:ChecksumKey").Value ?? "",
-    // Mặc định dùng PRODUCTION URL (api.payos.vn) - ổn định hơn sandbox.
+    // Mặc định dùng PRODUCTION URL (api-merchant.payos.vn) - endpoint mới chính thức của PayOS.
     // Sandbox (api-beta.payos.vn) hay bị DNS issue.
-    BaseUrl = builder.Configuration.GetSection("PayOs:BaseUrl").Value ?? "https://api.payos.vn",
+    BaseUrl = builder.Configuration.GetSection("PayOs:BaseUrl").Value ?? "https://api-merchant.payos.vn",
     AppBaseUrl = builder.Configuration.GetSection("PayOs:AppBaseUrl").Value ?? "",
     ExpirationMinutes = builder.Configuration.GetValue("PayOs:ExpirationMinutes", 15)
 };
@@ -106,10 +106,10 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEA
 // HttpClient cho PayOsService: dùng AddHttpClient để có connection pooling
 // và cơ chế tái tạo kết nối tự động khi DNS/đường dây đổi.
 //
-// PayOS dùng Cloudflare, và api.payos.vn có thể không resolve được DNS
-// (hoặc bị chặn bởi ISP). Dùng SocketsHttpHandler với ConnectCallback
-// để override DNS resolution: ép api.payos.vn → 104.21.40.122 (IP Cloudflare thật).
-// Cách này KHÔNG cần sửa hosts file.
+// PayOS dùng Cloudflare, và api-merchant.payos.vn có thể không resolve được DNS
+    // (hoặc bị chặn bởi ISP). Dùng SocketsHttpHandler với ConnectCallback
+    // để override DNS resolution: ép api-merchant.payos.vn → 104.21.40.122 (IP Cloudflare thật).
+    // Cách này KHÔNG cần sửa hosts file.
 builder.Services.AddSingleton<REWEAR.Application.Interfaces.IPaymentGatewayConfig,
     REWEAR.Infrastructure.Services.PaymentGatewayConfig>();
 
@@ -135,7 +135,8 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IPayOsService>(sp =>
             // Cloudflare sở hữu dải IP rất lớn. Thử vài IP phổ biến:
             // 104.21.0.0/16 và 172.67.0.0/16.
             var host = context.DnsEndPoint.Host;
-            if (host.Equals("api.payos.vn", StringComparison.OrdinalIgnoreCase) ||
+            if (host.Equals("api-merchant.payos.vn", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("api.payos.vn", StringComparison.OrdinalIgnoreCase) ||
                 host.Equals("api-beta.payos.vn", StringComparison.OrdinalIgnoreCase))
             {
                 // Thử các IP Cloudflare cho PayOS (có thể xoay vòng).

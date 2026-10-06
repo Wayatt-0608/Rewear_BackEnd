@@ -254,7 +254,34 @@ public class PayOsService : IPayOsService
             Encoding.UTF8,
             new MediaTypeHeaderValue("application/json"));
 
-        return await _httpClient.SendAsync(request);
+        // Retry tối đa 3 lần với backoff khi gặp lỗi Cloudflare 5xx / DNS / 530.
+        // Lỗi 530 (Origin DNS error) thường là tạm thời do load balancer PayOS.
+        const int maxRetries = 3;
+        HttpResponseMessage? response = null;
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            response = await _httpClient.SendAsync(request);
+            int status = (int)response.StatusCode;
+            if (status < 500 && status != 429)
+            {
+                return response;
+            }
+            // 5xx hoặc 429 (rate limit): retry.
+            _logger.LogWarning(
+                "PayOS request that bai lan {Attempt}/{Max}, status {Status}. Do retry...",
+                attempt, maxRetries, status);
+            if (attempt < maxRetries)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2 * attempt));
+                // Phải clone request vì body đã được đọc.
+                request = CreateRequest(HttpMethod.Post, path);
+                request.Content = new StringContent(
+                    JsonSerializer.Serialize(payload),
+                    Encoding.UTF8,
+                    new MediaTypeHeaderValue("application/json"));
+            }
+        }
+        return response!;
     }
 
     private Task<HttpResponseMessage> GetAsync(string path)
