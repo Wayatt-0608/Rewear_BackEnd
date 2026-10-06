@@ -321,11 +321,16 @@ app.MapGet("/debug-jwt", (HttpContext ctx) =>
     var secretHash = BitConverter.ToString(md5.ComputeHash(Encoding.UTF8.GetBytes(jwtSecret)))
         .Replace("-", "").ToLowerInvariant();
 
+    // Hex encoding để thấy ký tự ẩn (null, space, etc.)
+    var secretHex = BitConverter.ToString(Encoding.UTF8.GetBytes(jwtSecret))
+        .Replace("-", " ").ToLowerInvariant();
+
     return Results.Ok(new
     {
         serverSecretHash = secretHash,
         serverSecretLength = jwtSecret.Length,
         serverSecretStart = jwtSecret.Substring(0, Math.Min(15, jwtSecret.Length)) + "...",
+        serverSecretHex = secretHex,  // ← MỚI: hiển thị hex để thấy ký tự ẩn
         jwtIssuer = jwtIssuer,
         jwtAudience = jwtAudience,
         tokenInfo = tokenInfo

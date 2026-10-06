@@ -20,16 +20,18 @@ public class AuthService : IAuthService
     // Thời gian hết hạn OTP: 5 phút
     private const int OTP_EXPIRY_MINUTES = 5;
 
-    // JWT Configuration
-    private const string JWT_SECRET = "RewearSecretKey2024!@#$%^&*()_+MinLength32Chars";
-    private const string JWT_ISSUER = "RewearAPI";
-    private const string JWT_AUDIENCE = "RewearApp";
+    // JWT Configuration - đọc từ IConfiguration để đồng bộ với Program.cs (verify)
+    private string JWT_SECRET => _configuration["JwtSettings:SecretKey"]
+        ?? throw new InvalidOperationException("JwtSettings:SecretKey chưa được cấu hình");
+    private string JWT_ISSUER => _configuration["JwtSettings:Issuer"] ?? "RewearAPI";
+    private string JWT_AUDIENCE => _configuration["JwtSettings:Audience"] ?? "RewearApp";
     private const int JWT_EXPIRY_HOURS = 24;
 
-    public AuthService(IUserRepository userRepository, IEmailService emailService)
+    public AuthService(IUserRepository userRepository, IEmailService emailService, IConfiguration configuration)
     {
         _userRepository = userRepository;
         _emailService = emailService;
+        _configuration = configuration;
     }
 
     /// <summary>
