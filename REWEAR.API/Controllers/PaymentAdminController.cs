@@ -6,17 +6,6 @@ using REWEAR.Infrastructure.Payments;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Admin endpoint để quản lý PayOS webhook (Task 8.6).
-/// </summary>
-/// <remarks>
-/// Các endpoint này chỉ dành cho admin, dùng để:
-/// - Đăng ký URL webhook với PayOS (chỉ cần 1 lần khi setup).
-/// - Test webhook nội bộ.
-///
-/// Lưu ý: URL webhook là cố định theo deployment, KHÔNG cần gọi lại
-/// mỗi lần restart (khác với Cloudflare Tunnel).
-/// </remarks>
 [ApiController]
 [Route("api/admin/payments")]
 [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")]
@@ -39,20 +28,6 @@ public class PaymentAdminController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// Đăng ký URL webhook với PayOS. Gọi 1 lần khi setup hoặc khi đổi domain.
-    /// </summary>
-    /// <remarks>
-    /// PayOS sẽ gọi test POST vào URL để verify. Nếu endpoint trả response
-    /// đúng format (200 OK + JSON), URL sẽ được lưu và PayOS sẽ gọi về
-    /// mỗi khi có giao dịch thay đổi trạng thái.
-    ///
-    /// Ví dụ:
-    /// POST /api/admin/payments/webhook/confirm
-    /// {
-    ///   "webhookUrl": "https://rewear-wyb0.onrender.com/api/payments/webhook"
-    /// }
-    /// </remarks>
     [HttpPost("webhook/confirm")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -90,9 +65,6 @@ public class PaymentAdminController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// Test endpoint: gọi PayOS confirm-webhook với URL mặc định trong config.
-    /// </summary>
     [HttpPost("webhook/confirm/default")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> ConfirmDefaultWebhook()
@@ -101,11 +73,7 @@ public class PaymentAdminController : ControllerBase
     }
 }
 
-/// <summary>
-/// Request body cho API confirm webhook.
-/// </summary>
 public class ConfirmWebhookRequest
 {
-    /// <summary>URL đầy đủ của webhook. Để trống = dùng URL từ config.</summary>
     public string? WebhookUrl { get; set; }
 }

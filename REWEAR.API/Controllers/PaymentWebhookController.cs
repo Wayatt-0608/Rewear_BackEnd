@@ -6,20 +6,6 @@ using REWEAR.Infrastructure.Payments;
 
 namespace REWEAR.API.Controllers;
 
-/// <summary>
-/// Webhook nhận callback từ PayOS khi thanh toán hoàn tất (Task 8.6).
-/// </summary>
-/// <remarks>
-/// PayOS gọi POST vào endpoint này mỗi khi có giao dịch thay đổi trạng thái
-/// (PAID / CANCELLED). Endpoint này phải:
-/// - KHÔNG yêu cầu JWT (PayOS không có token của mình).
-/// - Xác thực signature từ PayOS để chắc chắn request thật sự từ PayOS.
-/// - Trả response format đặc biệt theo PayOS docs: {"error": null, "data": ...}.
-/// - Idempotent: nhận nhiều lần cho cùng 1 giao dịch vẫn OK.
-///
-/// URL webhook đăng ký trên PayOS Dashboard:
-///   https://rewear-wyb0.onrender.com/api/payments/webhook
-/// </remarks>
 [ApiController]
 [Route("api/payments/webhook")]
 public class PaymentWebhookController : ControllerBase
@@ -38,15 +24,6 @@ public class PaymentWebhookController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// PayOS gọi endpoint này khi trạng thái thanh toán thay đổi.
-    /// </summary>
-    /// <remarks>
-    /// Response format theo PayOS docs: {"error": null, "data": {...}}.
-    /// - error: null nếu xử lý OK, chuỗi lỗi nếu fail.
-    /// - 200 OK khi xử lý xong, kể cả khi idempotent.
-    /// - 400 Bad Request chỉ khi verify signature fail.
-    /// </remarks>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -141,10 +118,6 @@ public class PaymentWebhookController : ControllerBase
         return Ok(new { error = (string?)null, data = new { orderCode = orderCodeRewear, status = "success" } });
     }
 
-    /// <summary>
-    /// Verify signature từ PayOS theo công thức:
-    /// signature = HMAC_SHA256(checksumKey, sorted_data_fields)
-    /// </summary>
     private bool VerifyPayOsSignature(string body, out JsonElement dataElement, out string errorMessage)
     {
         dataElement = default;
@@ -197,10 +170,6 @@ public class PaymentWebhookController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Tính HMAC-SHA256 signature cho object theo cách PayOS yêu cầu:
-    /// sắp xếp keys theo alphabet, nối key=value bằng & (chỉ primitive values).
-    /// </summary>
     private static string ComputeHmacSha256FromObject(JsonElement element, string key)
     {
         var pairs = new List<string>();
@@ -236,9 +205,6 @@ public class PaymentWebhookController : ControllerBase
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    /// <summary>
-    /// Tìm orderCode REWEAR từ paymentLinkId bằng cách query DB.
-    /// </summary>
     private async Task<string?> ResolveOrderCodeAsync(string paymentLinkId)
     {
         try
