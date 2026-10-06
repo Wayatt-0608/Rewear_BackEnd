@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: rewear-backend
+    runtime: docker
+    rootDir: REWEAR.API
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: MongoDbSettings__ConnectionString
+        sync: false
+      - key: MongoDbSettings__DatabaseName
+        value: rewear_production
+      - key: JwtSettings__SecretKey
+        sync: false
+      - key: JwtSettings__Issuer
+        value: RewearAPI
+      - key: JwtSettings__Audience
+        value: RewearApp
+      - key: Cloudinary__CloudName
+        value: dt1b5bdtg
+      - key: Cloudinary__ApiKey
+        sync: false
+      - key: Cloudinary__ApiSecret
+        sync: false
+      - key: Cloudinary__Folder
+        value: rewear
+      - key: PayOs__ClientId
+        value: b8d6ee40-795a-4e6d-9b39-d247e4489a63
+      - key: PayOs__ApiKey
+        sync: false
+      - key: PayOs__ChecksumKey
+        sync: false
+      - key: PayOs__BaseUrl
+        value: https://api-beta.payos.vn
+      - key: PayOs__AppBaseUrl
+        sync: false
+      - key: PayOs__ExpirationMinutes
+        value: "15"

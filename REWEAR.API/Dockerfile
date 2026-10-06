@@ -25,11 +25,13 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 # Fly.io bắt buộc lắng nghe trên cổng 8080.
-# Bind [::] (IPv6) để Fly proxy nội bộ kết nối được.
+# Render mặc định cổng 10000.
+# Dùng biến $PORT (Render tự set, mặc định 10000; Fly không set thì dùng 8080).
+# Bind [::] (IPv6) để proxy nội bộ kết nối được.
 # Lưu ý: Kestrel ASP.NET Core mặc định bind cả IPv4 + IPv6 khi nói [::],
 # nhưng nếu VPS chỉ có IPv6 (như Fly), app sẽ chỉ nghe IPv6.
-ENV ASPNETCORE_URLS=http://[::]:8080
-EXPOSE 8080
+ENV ASPNETCORE_URLS=http://[::]:${PORT:-8080}
+EXPOSE 8080 10000
 
 # Không dùng appsettings.Development.json trên production:
 # toàn bộ secret (Mongo, JWT, PayOS, Cloudinary, Email) phải được set

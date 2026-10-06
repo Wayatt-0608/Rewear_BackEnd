@@ -7,6 +7,7 @@
 **/.vs
 **/.vscode
 **/.idea
+**/.cursor
 
 # === Build outputs ===
 **/bin
@@ -17,6 +18,8 @@
 **/.dockerignore
 **/Dockerfile*
 **/docker-compose*.yml
+**/render.yaml
+**/fly.toml
 
 # === Docs (không cần runtime) ===
 **/*.md

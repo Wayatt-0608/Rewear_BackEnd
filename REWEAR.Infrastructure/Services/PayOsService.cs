@@ -66,9 +66,10 @@ public class PayOsService : IPayOsService
 
             if (!response.IsSuccessStatusCode)
             {
+                var body = await response.Content.ReadAsStringAsync();
                 _logger.LogError(
-                    "PayOS create payment request that bai voi ma don {OrderCode}. Status: {Status}, Body: {Body}",
-                    orderCode, (int)response.StatusCode, await response.Content.ReadAsStringAsync());
+                    "PayOS create payment request that bai voi ma don {OrderCode}. Status: {Status}, Body: {Body}, ClientId: {ClientId}",
+                    orderCode, (int)response.StatusCode, body, _settings.ClientId);
                 return null;
             }
 

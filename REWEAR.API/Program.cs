@@ -271,7 +271,9 @@ app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Rewear API v1");
-    c.RoutePrefix = "swagger"; // URL: /swagger
+    // RoutePrefix = "" => Swagger UI o root "/", nguoi dung chi can vao rewear.fly.dev
+    // la thay ngay API docs khong can go them /swagger.
+    c.RoutePrefix = string.Empty;
 });
 
 if (app.Environment.IsDevelopment())
