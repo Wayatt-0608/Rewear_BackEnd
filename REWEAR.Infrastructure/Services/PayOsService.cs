@@ -41,18 +41,22 @@ public class PayOsService : IPayOsService
         // PayOS dùng đơn vị tiền tệ là VND (số nguyên).
         long amountVnd = (long)Math.Round(amount, 0, MidpointRounding.AwayFromZero);
 
-        // orderCode phải là SỐ NGUYÊN. Convert từ "RW-20261006-A64A25" → số.
-        // Lấy 9 số cuối của hash orderCode để đảm bảo unique.
-        int numericOrderCode = Math.Abs(orderCode.GetHashCode() % 1_000_000_000);
-        if (numericOrderCode < 100000) numericOrderCode += 1_000_000;  // đảm bảo > 6 chữ số
+        // orderCode phải là SỐ NGUYÊN DUY NHẤT. PayOS từ chối nếu trùng.
+        // Dùng Unix timestamp + random suffix để đảm bảo unique.
+        long numericOrderCode = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 9_000_000_000L + 1_000_000_000L;
 
-        // PayOS yêu cầu signature cho cả body request (HMAC-SHA256).
-        // Công thức: signature = HMAC_SHA256(checksumKey, sorted(key=value)&...)
-        // Với create-payment: amount=$amount&cancelUrl=$cancelUrl&description=$description
-        //                    &orderCode=$orderCode&returnUrl=$returnUrl
+        // PayOS yêu cầu signature cho body request (HMAC-SHA256).
+        // Công thức chính thức:
+        //   signature = HMAC_SHA256(checksumKey,
+        //     "amount={amount}&cancelUrl={url}&description={desc}&orderCode={code}&returnUrl={url}")
+        // Thứ tự alphabet BẮT BUỘC: amount, cancelUrl, description, orderCode, returnUrl
         string description = $"Thanh toan don {orderCode}";
-        string signatureData = $"amount={amountVnd}&cancelUrl={cancelUrl}&description={description}" +
-                               $"&orderCode={numericOrderCode}&returnUrl={returnUrl}";
+        string signatureData =
+            $"amount={amountVnd}" +
+            $"&cancelUrl={cancelUrl}" +
+            $"&description={description}" +
+            $"&orderCode={numericOrderCode}" +
+            $"&returnUrl={returnUrl}";
         string signature = ComputeHmacSha256(_settings.ChecksumKey, signatureData);
 
         var payload = new Dictionary<string, object>
@@ -75,8 +79,8 @@ public class PayOsService : IPayOsService
             {
                 var body = await response.Content.ReadAsStringAsync();
                 _logger.LogError(
-                    "PayOS create payment request that bai voi ma don {OrderCode}. Status: {Status}, Body: {Body}",
-                    orderCode, (int)response.StatusCode, body);
+                    "PayOS create payment request that bai voi ma don {OrderCode}. Status: {Status}, Body: {Body}, Payload: {Payload}",
+                    orderCode, (int)response.StatusCode, body, System.Text.Json.JsonSerializer.Serialize(payload));
                 return null;
             }
 
