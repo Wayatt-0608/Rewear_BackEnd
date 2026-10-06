@@ -36,6 +36,16 @@ var jwtSecret = builder.Configuration.GetSection("JwtSettings:SecretKey").Value
 var jwtIssuer = builder.Configuration.GetSection("JwtSettings:Issuer").Value ?? "RewearAPI";
 var jwtAudience = builder.Configuration.GetSection("JwtSettings:Audience").Value ?? "RewearApp";
 
+// Đăng ký JwtSettings vào DI để AuthService (Application layer) sử dụng
+var jwtSettings = new REWEAR.Application.DTOs.JwtSettings
+{
+    SecretKey = jwtSecret,
+    Issuer = jwtIssuer,
+    Audience = jwtAudience,
+    ExpiryHours = 24
+};
+builder.Services.AddSingleton(jwtSettings);
+
 // Đăng ký MongoDbContext vào Dependency Injection
 builder.Services.AddSingleton(mongoSettings);
 builder.Services.AddSingleton<MongoDbContext>();

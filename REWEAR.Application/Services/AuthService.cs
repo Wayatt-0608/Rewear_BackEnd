@@ -16,22 +16,19 @@ public class AuthService : IAuthService
 {
     private readonly IUserRepository _userRepository;
     private readonly IEmailService _emailService;
+    private readonly JwtSettings _jwtSettings;
 
     // Thời gian hết hạn OTP: 5 phút
     private const int OTP_EXPIRY_MINUTES = 5;
 
-    // JWT Configuration - đọc từ IConfiguration để đồng bộ với Program.cs (verify)
-    private string JWT_SECRET => _configuration["JwtSettings:SecretKey"]
-        ?? throw new InvalidOperationException("JwtSettings:SecretKey chưa được cấu hình");
-    private string JWT_ISSUER => _configuration["JwtSettings:Issuer"] ?? "RewearAPI";
-    private string JWT_AUDIENCE => _configuration["JwtSettings:Audience"] ?? "RewearApp";
-    private const int JWT_EXPIRY_HOURS = 24;
-
-    public AuthService(IUserRepository userRepository, IEmailService emailService, IConfiguration configuration)
+    public AuthService(IUserRepository userRepository, IEmailService emailService, JwtSettings jwtSettings)
     {
         _userRepository = userRepository;
         _emailService = emailService;
-        _configuration = configuration;
+        _jwtSettings = jwtSettings;
+
+        if (string.IsNullOrWhiteSpace(_jwtSettings?.SecretKey))
+            throw new InvalidOperationException("JwtSettings.SecretKey chưa được cấu hình");
     }
 
     /// <summary>
@@ -354,7 +351,7 @@ public class AuthService : IAuthService
     /// </summary>
     public string GenerateJwtToken(User user)
     {
-        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JWT_SECRET));
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SecretKey));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
         var claims = new[]
@@ -368,10 +365,10 @@ public class AuthService : IAuthService
         };
 
         var token = new JwtSecurityToken(
-            issuer: JWT_ISSUER,
-            audience: JWT_AUDIENCE,
+            issuer: _jwtSettings.Issuer,
+            audience: _jwtSettings.Audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(JWT_EXPIRY_HOURS),
+            expires: DateTime.UtcNow.AddHours(_jwtSettings.ExpiryHours),
             signingCredentials: credentials
         );
 
