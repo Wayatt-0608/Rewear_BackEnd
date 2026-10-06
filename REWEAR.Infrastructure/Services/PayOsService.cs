@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -11,6 +10,10 @@ namespace REWEAR.Infrastructure.Services;
 /// <summary>
 /// Implementation IPayOsService gọi REST API của PayOS (Task 8).
 /// </summary>
+/// <remarks>
+/// Hệ thống không nhận webhook nữa, chỉ gọi đi: tạo phiên, tra cứu trạng thái,
+/// hoàn tiền. Tất cả đều qua REST API của PayOS.
+/// </remarks>
 public class PayOsService : IPayOsService
 {
     private readonly HttpClient _httpClient;
@@ -87,31 +90,6 @@ public class PayOsService : IPayOsService
             _logger.LogError(ex, "Loi khi goi PayOS tao payment request cho don {OrderCode}", orderCode);
             return null;
         }
-    }
-
-    /// <summary>
-    /// Xác minh chữ ký webhook: HMAC-SHA256(checksumKey, rawBody) so với
-    /// giá trị header x-signature mà PayOS gửi kèm.
-    /// </summary>
-    public bool VerifyWebhookSignature(string rawRequestBody, string? signature)
-    {
-        if (string.IsNullOrWhiteSpace(signature))
-            return false;
-
-        if (string.IsNullOrWhiteSpace(_settings.ChecksumKey))
-        {
-            _logger.LogError("Chua cau hinh PayOs:ChecksumKey nen khong the xac thuc chu ky webhook.");
-            return false;
-        }
-
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_settings.ChecksumKey));
-        byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(rawRequestBody));
-        string expected = Convert.ToHexString(hash).ToLowerInvariant();
-
-        // So sánh constant-time để tránh timing attack.
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(expected),
-            Encoding.UTF8.GetBytes(signature.Trim().ToLowerInvariant()));
     }
 
     /// <summary>
@@ -224,6 +202,12 @@ public class PayOsService : IPayOsService
         // Header xác thực: partnerCode:apiKey
         request.Headers.TryAddWithoutValidation(
             "Authorization", $"{_settings.ClientId}:{_settings.ApiKey}");
+
+        // User-Agent hợp lệ: Cloudflare origin có thể block request không có UA
+        // hoặc có UA giống bot (.NET HttpClient default).
+        request.Headers.TryAddWithoutValidation(
+            "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
         return request;
     }

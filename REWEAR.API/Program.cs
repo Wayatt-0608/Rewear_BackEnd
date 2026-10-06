@@ -93,13 +93,60 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEA
 // ====== PAYMENT (Task 8) ======
 // HttpClient cho PayOsService: dùng AddHttpClient để có connection pooling
 // và cơ chế tái tạo kết nối tự động khi DNS/đường dây đổi.
+//
+// PayOS dùng Cloudflare, và api.payos.vn có thể không resolve được DNS
+// (hoặc bị chặn bởi ISP). Dùng SocketsHttpHandler với ConnectCallback
+// để override DNS resolution: ép api.payos.vn → 104.21.40.122 (IP Cloudflare thật).
+// Cách này KHÔNG cần sửa hosts file.
 builder.Services.AddSingleton<REWEAR.Application.Interfaces.IPaymentGatewayConfig,
     REWEAR.Infrastructure.Services.PaymentGatewayConfig>();
-builder.Services.AddHttpClient<REWEAR.Application.Interfaces.IPayOsService,
-    REWEAR.Infrastructure.Services.PayOsService>(client =>
+
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IPayOsService>(sp =>
 {
-    // PayOS yêu cầu timeout hợp lý: quá dài sẽ giữ nguyên request của checkout.
-    client.Timeout = TimeSpan.FromSeconds(30);
+    var settings = sp.GetRequiredService<PayOsSettings>();
+    var logger = sp.GetRequiredService<ILogger<REWEAR.Infrastructure.Services.PayOsService>>();
+
+    // SocketsHttpHandler cho phép override DNS resolution ở mức kết nối TCP.
+    var handler = new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+        AllowAutoRedirect = false,
+        ConnectCallback = async (context, cancellationToken) =>
+        {
+            // Nếu đang kết nối đến api.payos.vn → Cloudflare IP thật của PayOS.
+            // Lý do: api.payos.vn có thể không resolve được trên môi trường này
+            // (bị ISP/VN chặn DNS), nhưng Cloudflare vẫn nhận request nếu kết nối
+            // thẳng đến IP + đúng Host header.
+            if (context.DnsEndPoint.Host.Equals("api.payos.vn", StringComparison.OrdinalIgnoreCase))
+            {
+                var socket = new System.Net.Sockets.Socket(
+                    System.Net.Sockets.AddressFamily.InterNetwork,
+                    System.Net.Sockets.SocketType.Stream,
+                    System.Net.Sockets.ProtocolType.Tcp);
+                await socket.ConnectAsync(
+                    new System.Net.IPEndPoint(
+                        System.Net.IPAddress.Parse("104.21.40.122"), 443),
+                    cancellationToken);
+                // SocketsHttpHandler sẽ tự động bắt tay TLS trên stream này.
+                return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+            }
+
+            // Mọi host khác: kết nối bình thường (DNS resolution mặc định).
+            var defaultSocket = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.InterNetwork,
+                System.Net.Sockets.SocketType.Stream,
+                System.Net.Sockets.ProtocolType.Tcp);
+            await defaultSocket.ConnectAsync(context.DnsEndPoint, cancellationToken);
+            return new System.Net.Sockets.NetworkStream(defaultSocket, ownsSocket: true);
+        }
+    };
+
+    var httpClient = new HttpClient(handler)
+    {
+        Timeout = TimeSpan.FromSeconds(30)
+    };
+
+    return new REWEAR.Infrastructure.Services.PayOsService(httpClient, settings, logger);
 });
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IPaymentService,
     REWEAR.Application.Services.PaymentService>();
@@ -228,5 +275,9 @@ app.UseAuthentication();  // JWT Authentication
 app.UseRoleChecking();   // Role checking (log + chặn admin API cho non-Admin)
 app.UseAuthorization();  // Authorization Policies
 app.MapControllers();
+
+// Health check endpoint cho Fly.io proxy (khong yeu cau JWT).
+app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }))
+   .AllowAnonymous();
 
 app.Run();

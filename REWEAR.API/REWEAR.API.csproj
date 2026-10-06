@@ -5,7 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>e3bb2b9a-682b-4a27-8609-94364834da2a</UserSecretsId>
-    <DockerDefaultTargetOS>Windows</DockerDefaultTargetOS>
+    <!-- Linux container cho Fly.io (mặc định khi không có tag sẽ tự chọn Windows). -->
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
 
     <!-- Bật sinh file XML documentation để Swagger hiện mô tả + tên chức năng của endpoint.
          NoWarn CS1591 vì nhiều DTO (ProductResponse, ApiResponse, ...) chưa có comment cho
