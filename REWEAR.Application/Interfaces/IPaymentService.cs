@@ -37,6 +37,21 @@ public interface IPaymentService
     Task<PaymentStatusResponse?> GetStatusAsync(string orderId, string? userId);
 
     /// <summary>
+    /// Đối soát chủ động: gọi thẳng PayOS server để xác minh trạng thái thanh toán
+    /// của đơn và cập nhật DB nếu có thay đổi. Thay thế webhook trong kiến trúc
+    /// không dùng Cloudflare Tunnel/Worker.
+    /// </summary>
+    /// <remarks>
+    /// - PAID trên PayOS mà DB đang Pending: chốt thanh toán, chuyển đơn sang Confirmed.
+    /// - CANCELLED/EXPIRED trên PayOS mà DB đang Pending: trả kho, chuyển đơn sang PaymentExpired.
+    /// - Đơn đã chốt rồi: idempotent, không làm gì thêm.
+    /// - Không tìm thấy payment trên PayOS: trả về null (chưa tạo phiên hoặc ID sai).
+    /// </remarks>
+    /// <param name="orderId">Id đơn hàng REWEAR cần đối soát.</param>
+    /// <returns>Trạng thái thanh toán mới nhất sau khi đối soát, hoặc null nếu lỗi.</returns>
+    Task<PaymentStatusResponse?> ReconcileAsync(string orderId);
+
+    /// <summary>
     /// Lấy lịch sử thanh toán của đơn. Nếu truyền userId thì kiểm tra sở hữu.
     /// </summary>
     Task<PaymentHistoryResponse?> GetHistoryAsync(string orderId, string? userId);

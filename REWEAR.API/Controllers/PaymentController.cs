@@ -109,6 +109,44 @@ public class PaymentController : ControllerBase
     }
 
     /// <summary>
+    /// Đối soát chủ động với PayOS: gọi thẳng PayOS server để xác minh trạng thái
+    /// thanh toán và cập nhật DB. Thay thế webhook khi không dùng Cloudflare.
+    /// </summary>
+    /// <remarks>
+    /// Dùng khi:
+    /// - Khách thanh toán xong nhưng polling chưa kịp cập nhật.
+    /// - Webhook bị mất và cần đồng bộ ngay.
+    /// - Muốn verify trạng thái thanh toán thật từ PayOS server.
+    ///
+    /// Idempotent: gọi nhiều lần cũng không chốt đơn 2 lần.
+    /// </remarks>
+    [HttpPost("{orderId}/reconcile")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse>> Reconcile(string orderId)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(new ApiResponse { Success = false, Message = "Không xác định được người dùng." });
+
+        // Chỉ chủ đơn hoặc admin mới được đối soát.
+        var ownedOrder = await _orderService.GetOrderDetailAsync(userId, orderId);
+        if (ownedOrder == null)
+            return NotFound(new ApiResponse { Success = false, Message = "Không tìm thấy đơn hàng." });
+
+        var status = await _paymentService.ReconcileAsync(orderId);
+        if (status == null)
+            return NotFound(new ApiResponse { Success = false, Message = "Không thể đối soát đơn hàng này." });
+
+        return Ok(new ApiResponse
+        {
+            Success = true,
+            Message = "Đã đối soát với PayOS. Trạng thái hiện tại đã được cập nhật.",
+            Data = status
+        });
+    }
+
+    /// <summary>
     /// Lấy lịch sử thanh toán của đơn (chỉ xem được đơn của chính mình).
     /// </summary>
     /// <param name="orderId">Id của đơn hàng cần xem lịch sử thanh toán.</param>

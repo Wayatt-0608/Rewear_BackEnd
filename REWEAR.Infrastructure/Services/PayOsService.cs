@@ -156,35 +156,67 @@ public class PayOsService : IPayOsService
     }
 
     /// <summary>
-    /// Tra cứu giao dịch: GET /v1/transactions/{id}
+    /// Tra cứu trạng thái payment request: GET /v2/payment-requests/{id}
     /// </summary>
+    /// <remarks>
+    /// Trả về status (PENDING/PAID/CANCELLED/EXPIRED) và amountPaid.
+    /// Cần endpoint này để backend tự đối soát với PayOS khi không có webhook:
+    /// FE gọi GET /api/payments/{id}/status → backend gọi API này → nếu đã
+    /// PAID thì chốt đơn luôn (HandleWebhookSuccessAsync).
+    /// </remarks>
     public async Task<PayOsTransactionInfo?> GetTransactionAsync(string transactionId)
     {
         try
         {
-            var response = await GetAsync($"/v1/transactions/{transactionId}");
+            var response = await GetAsync($"/v2/payment-requests/{transactionId}");
 
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "PayOS tra cuu giao dich that bai. TransactionId: {TransactionId}, Status: {Status}",
+                    "PayOS tra cuu payment request that bai. PaymentRequestId: {PaymentRequestId}, Status: {Status}",
                     transactionId, (int)response.StatusCode);
                 return null;
             }
 
             var json = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("PayOS get payment request response: {Json}", json);
+
             using var doc = JsonDocument.Parse(json);
-            var data = doc.RootElement.GetProperty("data");
+            var root = doc.RootElement;
+
+            // PayOS có thể trả 200 OK với body lỗi (code != "00") nhưng không có field data.
+            if (!root.TryGetProperty("code", out var codeProp)
+                || codeProp.GetString() != "00")
+            {
+                var desc = root.TryGetProperty("desc", out var d)
+                    ? d.GetString() : "unknown";
+                _logger.LogWarning(
+                    "PayOS tra ve code khong thanh cong khi tra cuu payment request: {Desc}",
+                    desc);
+                return null;
+            }
+
+            var data = root.GetProperty("data");
+
+            // PayOS trả cả `paidAmount` (alias cũ) và `amountPaid` (chuẩn mới).
+            // Đọc amountPaid trước, fallback paidAmount để tương thích ngược.
+            decimal paidAmount = 0m;
+            if (data.TryGetProperty("amountPaid", out var amountPaid))
+                paidAmount = amountPaid.GetDecimal();
+            else if (data.TryGetProperty("paidAmount", out var paidAmountOld))
+                paidAmount = paidAmountOld.GetDecimal();
 
             return new PayOsTransactionInfo
             {
                 Id = data.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "",
-                Reference = data.TryGetProperty("reference", out var rf) ? rf.GetString() ?? "" : "",
-                PaymentLinkId = data.TryGetProperty("paymentLinkId", out var link) ? link.GetString() ?? "" : "",
+                Reference = data.TryGetProperty("orderCode", out var oc)
+                    ? oc.ToString() : "",
+                PaymentLinkId = data.TryGetProperty("id", out var link)
+                    ? link.GetString() ?? "" : "",
                 Amount = data.TryGetProperty("amount", out var amt) ? amt.GetInt32() : 0,
-                PaidAmount = data.TryGetProperty("paidAmount", out var paid) ? paid.GetDecimal() : 0m,
+                PaidAmount = paidAmount,
                 Status = data.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
-                CompletedAt = data.TryGetProperty("completedAt", out var ca)
+                CompletedAt = data.TryGetProperty("transactionDateTime", out var ca)
                     && ca.ValueKind == JsonValueKind.String
                     && DateTime.TryParse(ca.GetString(), out var parsed)
                         ? parsed
@@ -193,7 +225,7 @@ public class PayOsService : IPayOsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Loi khi tra cuu giao dich PayOS {TransactionId}", transactionId);
+            _logger.LogError(ex, "Loi khi tra cuu payment request PayOS {PaymentRequestId}", transactionId);
             return null;
         }
     }
@@ -326,4 +358,61 @@ public class PayOsService : IPayOsService
 
     private Task<HttpResponseMessage> GetAsync(string path)
         => _httpClient.SendAsync(CreateRequest(HttpMethod.Get, path));
+
+    /// <summary>
+    /// Đăng ký URL webhook với PayOS. PayOS sẽ test URL ngay khi nhận request,
+    /// nếu endpoint trả response đúng format thì URL được lưu lại.
+    /// </summary>
+    /// <remarks>
+    /// POST /confirm-webhook body: { "webhookUrl": "https://..." }
+    /// Response: { "code": "00", "desc": "success", "data": {...} }
+    /// </remarks>
+    public async Task<bool> ConfirmWebhookAsync(string webhookUrl)
+    {
+        if (string.IsNullOrWhiteSpace(webhookUrl))
+        {
+            _logger.LogError("ConfirmWebhook: webhookUrl rong");
+            return false;
+        }
+
+        try
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["webhookUrl"] = webhookUrl
+            };
+
+            var response = await PostAsync("/confirm-webhook", payload);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError(
+                    "PayOS confirm webhook that bai. Status: {Status}, Body: {Body}",
+                    (int)response.StatusCode, body);
+                return false;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var code = doc.RootElement.TryGetProperty("code", out var c) ? c.GetString() : null;
+            if (code != "00")
+            {
+                var desc = doc.RootElement.TryGetProperty("desc", out var d) ? d.GetString() : body;
+                _logger.LogError(
+                    "PayOS confirm webhook tra ve code khong thanh cong: {Code}, desc: {Desc}",
+                    code, desc);
+                return false;
+            }
+
+            _logger.LogInformation(
+                "PayOS confirm webhook thanh cong. URL: {WebhookUrl}, Response: {Body}",
+                webhookUrl, body);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Loi khi confirm webhook voi PayOS. URL: {WebhookUrl}", webhookUrl);
+            return false;
+        }
+    }
 }

@@ -363,6 +363,140 @@ public class PaymentService : IPaymentService
     }
 
     /// <summary>
+    /// Đối soát chủ động với PayOS: gọi thẳng server PayOS để xác minh trạng thái
+    /// thanh toán và cập nhật DB nếu có thay đổi. Đây là cơ chế thay thế webhook
+    /// trong kiến trúc không dùng Cloudflare Tunnel/Worker.
+    /// </summary>
+    /// <remarks>
+    /// Flow:
+    /// 1. Lấy order + payment gần nhất trong DB.
+    /// 2. Nếu đơn đã ở trạng thái kết thúc (Confirmed/Cancelled/PaymentExpired): trả về status hiện tại.
+    /// 3. Nếu chưa có paymentLinkId (chưa từng tạo phiên PayOS): trả về status hiện tại.
+    /// 4. Gọi PayOS GET /v2/payment-requests/{id}.
+    /// 5. Nếu PAID: gọi HandleWebhookSuccessAsync để chốt thanh toán.
+    /// 6. Nếu CANCELLED/EXPIRED: gọi HandleWebhookFailedAsync để trả kho + hủy đơn.
+    /// 7. Trả về status mới nhất sau khi đối soát.
+    /// </remarks>
+    public async Task<PaymentStatusResponse?> ReconcileAsync(string orderId)
+    {
+        var order = await _orderRepository.GetByIdAsync(orderId);
+        if (order == null)
+        {
+            _logger.LogWarning("Reconcile: khong tim thay don {OrderId}", orderId);
+            return null;
+        }
+
+        // Đơn đã chốt rồi thì không cần đối soát nữa.
+        if (order.Status is OrderStatus.Confirmed
+            or OrderStatus.Shipping
+            or OrderStatus.Delivered
+            or OrderStatus.Cancelled
+            or OrderStatus.PaymentExpired)
+        {
+            return new PaymentStatusResponse
+            {
+                OrderId = order.Id,
+                OrderCode = order.OrderCode,
+                PaymentStatus = "Paid",
+                OrderStatus = order.Status.ToString(),
+                IsPaid = order.Status is OrderStatus.Confirmed
+                    or OrderStatus.Shipping
+                    or OrderStatus.Delivered,
+                IsExpired = order.Status == OrderStatus.PaymentExpired,
+                ExpiresInSeconds = 0
+            };
+        }
+
+        var payment = await _paymentRepository.GetLatestByOrderIdAsync(orderId);
+        if (payment == null || string.IsNullOrWhiteSpace(payment.PayOsTransactionId))
+        {
+            _logger.LogWarning(
+                "Reconcile: don {OrderCode} chua co phien PayOS de doi soat.",
+                order.OrderCode);
+            return new PaymentStatusResponse
+            {
+                OrderId = order.Id,
+                OrderCode = order.OrderCode,
+                PaymentStatus = "Pending",
+                OrderStatus = order.Status.ToString(),
+                IsPaid = false,
+                IsExpired = false,
+                ExpiresInSeconds = (int)Math.Max(0d,
+                    ((payment?.ExpiresAt ?? DateTime.UtcNow) - DateTime.UtcNow).TotalSeconds)
+            };
+        }
+
+        // Gọi PayOS lấy trạng thái thật.
+        _logger.LogInformation(
+            "Reconcile: dang hoi PayOS ve don {OrderCode} (paymentLinkId={PaymentLinkId})",
+            order.OrderCode, payment.PayOsTransactionId);
+
+        var info = await _payOsService.GetTransactionAsync(payment.PayOsTransactionId);
+        if (info == null)
+        {
+            _logger.LogError(
+                "Reconcile: khong goi duoc PayOS cho don {OrderCode}",
+                order.OrderCode);
+            return null;
+        }
+
+        _logger.LogInformation(
+            "Reconcile: PayOS tra ve don {OrderCode} status={Status}, amountPaid={Amount}",
+            order.OrderCode, info.Status, info.PaidAmount);
+
+        // Xử lý theo status từ PayOS.
+        if (string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
+        {
+            var result = await HandleWebhookSuccessAsync(
+                order.OrderCode, info.Id, info.PaidAmount);
+            if (!result.Success)
+            {
+                _logger.LogError(
+                    "Reconcile: HandleWebhookSuccess that bai cho don {OrderCode}: {Message}",
+                    order.OrderCode, result.Message);
+            }
+        }
+        else if (string.Equals(info.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(info.Status, "EXPIRED", StringComparison.OrdinalIgnoreCase))
+        {
+            var reason = string.Equals(info.Status, "CANCELLED",
+                StringComparison.OrdinalIgnoreCase)
+                    ? "Khách huỷ thanh toán."
+                    : "Phiên thanh toán đã hết hạn.";
+
+            var result = await HandleWebhookFailedAsync(order.OrderCode, reason);
+            if (!result.Success)
+            {
+                _logger.LogError(
+                    "Reconcile: HandleWebhookFailed that bai cho don {OrderCode}: {Message}",
+                    order.OrderCode, result.Message);
+            }
+        }
+        // PENDING hoặc các status khác: giữ nguyên DB.
+
+        // Đọc lại DB để trả về status mới nhất.
+        var refreshedOrder = await _orderRepository.GetByIdAsync(orderId);
+        var refreshedPayment = await _paymentRepository.GetLatestByOrderIdAsync(orderId);
+        if (refreshedOrder == null || refreshedPayment == null)
+            return null;
+
+        return new PaymentStatusResponse
+        {
+            OrderId = refreshedOrder.Id,
+            OrderCode = refreshedOrder.OrderCode,
+            PaymentStatus = refreshedPayment.Status.ToString(),
+            OrderStatus = refreshedOrder.Status.ToString(),
+            IsPaid = refreshedPayment.Status == PaymentStatus.Paid,
+            IsExpired = refreshedPayment.Status == PaymentStatus.Expired
+                || DateTime.UtcNow > refreshedPayment.ExpiresAt,
+            ExpiresInSeconds = refreshedPayment.Status == PaymentStatus.Pending
+                ? (int)Math.Max(0,
+                    (refreshedPayment.ExpiresAt - DateTime.UtcNow).TotalSeconds)
+                : 0
+        };
+    }
+
+    /// <summary>
     /// Lấy lịch sử thanh toán của đơn. Nếu truyền userId thì kiểm tra sở hữu.
     /// </summary>
     public async Task<PaymentHistoryResponse?> GetHistoryAsync(string orderId, string? userId)

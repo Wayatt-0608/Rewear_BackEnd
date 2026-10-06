@@ -36,6 +36,15 @@ public interface IPayOsService
     /// <param name="transactionId">Id giao dịch cần hoàn.</param>
     /// <param name="reason">Lý do hoàn (hiển thị trên lịch sử giao dịch).</param>
     Task<PayOsRefundResult> RefundAsync(string transactionId, string? reason);
+
+    /// <summary>
+    /// Đăng ký URL webhook với PayOS. PayOS sẽ test URL bằng cách gọi POST
+    /// vào đó; nếu endpoint trả response đúng format, URL sẽ được lưu lại và
+    /// PayOS sẽ gọi mỗi khi có giao dịch thay đổi trạng thái.
+    /// </summary>
+    /// <param name="webhookUrl">URL đầy đủ (https://...) của webhook endpoint.</param>
+    /// <returns>True nếu PayOS chấp nhận URL.</returns>
+    Task<bool> ConfirmWebhookAsync(string webhookUrl);
 }
 
 /// <summary>
