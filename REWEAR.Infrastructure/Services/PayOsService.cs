@@ -85,8 +85,32 @@ public class PayOsService : IPayOsService
             }
 
             var json = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("PayOS response: {Json}", json);
+
             using var doc = JsonDocument.Parse(json);
-            var data = doc.RootElement.GetProperty("data");
+            var root = doc.RootElement;
+
+            // PayOS có thể trả 200 OK với body lỗi (code != "00") nhưng không có field data.
+            // Phải kiểm tra code trước khi truy cập data.
+            var code = root.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
+            if (code != "00")
+            {
+                var desc = root.TryGetProperty("desc", out var d) ? d.GetString() : json;
+                _logger.LogError(
+                    "PayOS tra ve code khong thanh cong {Code} cho don {OrderCode}: {Desc}",
+                    code, orderCode, desc);
+                return null;
+            }
+
+            // Một số response lỗi vẫn trả 200 nhưng không có field data
+            // (ví dụ: đơn hàng đã tồn tại, signature sai, v.v.)
+            if (!root.TryGetProperty("data", out var data))
+            {
+                _logger.LogError(
+                    "PayOS response 200 OK nhung KHONG co field 'data'. Don {OrderCode}. Body: {Body}",
+                    orderCode, json);
+                return null;
+            }
 
             return new PayOsCreateResult
             {
