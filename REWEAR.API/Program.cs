@@ -291,4 +291,45 @@ app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }))
    .AllowAnonymous();
 
+// ========================================
+// DEBUG ENDPOINT - JWT (tạm thời, chỉ để debug)
+// ========================================
+app.MapGet("/debug-jwt", (HttpContext ctx) =>
+{
+    var authHeader = ctx.Request.Headers["Authorization"].ToString();
+    var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        ? authHeader.Substring(7).Trim()
+        : authHeader.Trim();
+
+    string tokenInfo = "no-token-provided";
+    if (!string.IsNullOrEmpty(token))
+    {
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        try
+        {
+            var jwt = handler.ReadJwtToken(token);
+            tokenInfo = $"valid-jwt: sub={jwt.Subject}, iat={new DateTimeOffset(jwt.IssuedAt):yyyy-MM-dd HH:mm:ss}, exp={new DateTimeOffset(jwt.ValidTo):yyyy-MM-dd HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            tokenInfo = $"invalid-jwt: {ex.Message}";
+        }
+    }
+
+    // Hash MD5 của SecretKey server để so sánh (không lộ key thật)
+    using var md5 = System.Security.Cryptography.MD5.Create();
+    var secretHash = BitConverter.ToString(md5.ComputeHash(Encoding.UTF8.GetBytes(jwtSecret)))
+        .Replace("-", "").ToLowerInvariant();
+
+    return Results.Ok(new
+    {
+        serverSecretHash = secretHash,
+        serverSecretLength = jwtSecret.Length,
+        serverSecretStart = jwtSecret.Substring(0, Math.Min(15, jwtSecret.Length)) + "...",
+        jwtIssuer = jwtIssuer,
+        jwtAudience = jwtAudience,
+        tokenInfo = tokenInfo
+    });
+}).AllowAnonymous();
+
 app.Run();
