@@ -43,7 +43,7 @@ public class PaymentController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Trả về checkoutUrl để frontend chuyển khách hàng tới trang thanh toán,
-    /// kèm qrCode và thời hạn 15 phút. Nếu hết hạn, sản phẩm tự động trở lại cửa hàng.
+    /// kèm qrCode và thời hạn 5 phút (DEV/TEST). Nếu hết hạn, sản phẩm tự động trở lại cửa hàng.
     /// </remarks>
     /// <param name="orderId">Id của đơn hàng cần tạo phiên thanh toán.</param>
     [HttpPost("{orderId}/session")]

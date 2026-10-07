@@ -12,16 +12,21 @@ public class ProductsController : ControllerBase
 {
     private readonly IProductService _productService;
     private readonly ICloudinaryService _cloudinaryService;
+    private readonly IPaymentService _paymentService;
 
     // Image validation constants
     private const int MinImages = 1;
     private const int MaxImages = 5;
     private const string ImageFolder = "products";
 
-    public ProductsController(IProductService productService, ICloudinaryService cloudinaryService)
+    public ProductsController(
+        IProductService productService,
+        ICloudinaryService cloudinaryService,
+        IPaymentService paymentService)
     {
         _productService = productService;
         _cloudinaryService = cloudinaryService;
+        _paymentService = paymentService;
     }
 
     /// <summary>
@@ -32,6 +37,12 @@ public class ProductsController : ControllerBase
     {
         try
         {
+            // On-demand expiration: đóng phiên thanh toán hết hạn ngay khi user
+            // mở trang danh sách sản phẩm. Không phụ thuộc BackgroundService
+            // (Render free tier có thể không chạy background).
+            // Bỏ qua lỗi để không ảnh trải nghiệm user.
+            _ = SafeExpireStaleAsync();
+
             var products = await _productService.GetAllAsync(query);
             return Ok(products);
         }
@@ -47,14 +58,33 @@ public class ProductsController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id)
     {
+        // On-demand expiration tương tự GetAll.
+        _ = SafeExpireStaleAsync();
+
         var product = await _productService.GetByIdAsync(id);
-        
+
         if (product == null)
         {
             return NotFound(new { message = "Không tìm thấy sản phẩm." });
         }
 
         return Ok(product);
+    }
+
+    /// <summary>
+    /// Fire-and-forget cleanup phiên thanh toán hết hạn. Không chờ kết quả,
+    /// không ném lỗi - đây là tối ưu phụ, không ảnh hưởng response chính.
+    /// </summary>
+    private async Task SafeExpireStaleAsync()
+    {
+        try
+        {
+            await _paymentService.ExpireStalePaymentsAsync(50);
+        }
+        catch
+        {
+            // Nuốt lỗi: cleanup fail không được làm sập API.
+        }
     }
 
     /// <summary>

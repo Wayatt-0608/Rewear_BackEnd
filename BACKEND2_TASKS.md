@@ -99,7 +99,7 @@
 - [x] Payment callback/webhook (verify HMAC-SHA256 + idempotency)
 - [x] Payment status update (webhook + đối soát chủ động)
 - [x] Payment history
-- [x] Phiên thanh toán có hạn 15 phút + background job trả kho
+- [x] Phiên thanh toán có hạn 5 phút (DEV/TEST, prod: 15 phút) + background job trả kho
 - [x] Hoàn tiền tự động qua PayOS khi hủy đơn đã trả
 - [ ] Cấu hình key PayOS thật (ClientId/ApiKey/ChecksumKey)
 

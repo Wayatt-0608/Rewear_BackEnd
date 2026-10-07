@@ -47,9 +47,9 @@ public class PaymentService : IPaymentService
     /// Tạo phiên thanh toán cho đơn và gọi PayOS để lấy trang thanh toán.
     /// </summary>
     /// <param name="orderId">Id của đơn hàng cần tạo phiên thanh toán.</param>
-    /// <param name="expirationMinutes">Số phút khách được giữ chỗ sản phẩm (mặc định 15).</param>
+    /// <param name="expirationMinutes">Số phút khách được giữ chỗ sản phẩm (mặc định 5 - DEV/TEST, prod nên 15).</param>
     public async Task<(ApiResponse Response, CheckoutSessionResponse? Session)> CreateSessionAsync(
-        string orderId, int expirationMinutes = 15)
+        string orderId, int expirationMinutes = 5)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
         if (order == null)
@@ -63,8 +63,11 @@ public class PaymentService : IPaymentService
                 ApiErrorCode.Conflict), null);
         }
 
-        if (expirationMinutes < 5 || expirationMinutes > 60)
-            expirationMinutes = 15;
+        // === DEV/TEST MODE: chỉ 5 phút để dễ test ===
+        // Trên PayOS cũng phải set expiration tương ứng (5 phút) để đồng bộ.
+        // Khi deploy prod, đổi lại 15 và set PayOS expiration = 900 giây.
+        if (expirationMinutes < 2 || expirationMinutes > 60)
+            expirationMinutes = 5;
 
         DateTime expiresAt = DateTime.UtcNow.AddMinutes(expirationMinutes);
 

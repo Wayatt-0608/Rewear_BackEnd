@@ -42,7 +42,7 @@ public class OrdersController : ControllerBase
     /// <remarks>
     /// REWEAR áp dụng mô hình trả tiền trước: sau khi tạo đơn, hệ thống tự gọi
     /// PayOS tạo phiên thanh toán và trả về cùng response. Sản phẩm được giữ chỗ
-    /// trong 15 phút; quá hạn thì tự động trở lại cửa hàng.
+    /// trong 5 phút (DEV/TEST); quá hạn thì tự động trở lại cửa hàng.
     /// </remarks>
     [HttpPost("checkout")]
     public async Task<IActionResult> Checkout([FromBody] CheckoutRequest request)

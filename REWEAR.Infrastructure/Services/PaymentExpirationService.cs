@@ -9,9 +9,9 @@ namespace REWEAR.Infrastructure.Services;
 /// Background service đóng các phiên thanh toán quá hạn (Task 8).
 /// </summary>
 /// <remarks>
-/// REWEAR giữ chỗ sản phẩm 15 phút cho khách thanh toán. Nếu không có service này,
-/// sản phẩm sẽ bị kẹt ở trạng thái Reserved vô thời gian và không ai mua được.
-/// Chạy mỗi 60 giây — độ trễ tối đa 1 phút so với mốc hết hạn, chấp nhận được.
+/// REWEAR giữ chỗ sản phẩm 5 phút (DEV/TEST) cho khách thanh toán. Nếu không có service này,
+    /// sản phẩm sẽ bị kẹt ở trạng thái Reserved vô thời gian và không ai mua được.
+    /// Chạy mỗi 60 giây — độ trễ tối đa 1 phút so với mốc hết hạn, chấp nhận được.
 /// </remarks>
 public class PaymentExpirationService : BackgroundService
 {

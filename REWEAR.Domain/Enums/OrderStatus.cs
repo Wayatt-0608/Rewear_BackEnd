@@ -7,7 +7,7 @@ public enum OrderStatus
 {
     /// <summary>
     /// Đã tạo đơn và đang giữ chỗ sản phẩm, chờ khách thanh toán qua PayOS.
-    /// Có thời hạn 15 phút; quá hạn thì chuyển sang <see cref="PaymentExpired"/>.
+    /// Có thời hạn 5 phút (DEV/TEST); quá hạn thì chuyển sang <see cref="PaymentExpired"/>.
     /// </summary>
     AwaitingPayment = 0,
 
