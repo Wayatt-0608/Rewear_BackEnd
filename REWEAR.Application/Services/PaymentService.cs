@@ -197,8 +197,20 @@ public class PaymentService : IPaymentService
             "PAYMENT SUCCESS: don {OrderCode}, amount={Amount}, transactionId={TransactionId}",
             order.OrderCode, amount, transactionId);
 
-        // Chuyển đơn sang Confirmed. Sản phẩm VẪN giữ ở Reserved: chỉ khi giao
-        // thành công mới chốt Sold, để việc hủy/hoàn tiền còn trả kho được.
+        // ✅ OPTION A: Chuyển Product sang Sold ngay khi thanh toán thành công.
+        // Mỗi listing là 1 sản phẩm độc lập - mua xong thì Sold luôn.
+        foreach (var item in order.Items)
+        {
+            var committed = await _productRepository.CommitStockAsync(item.ProductId, item.Quantity);
+            if (committed > 0)
+            {
+                _logger.LogInformation(
+                    "San pham {ProductId} da chuyen sang Sold sau thanh toan.",
+                    item.ProductId);
+            }
+        }
+
+        // Chuyển đơn sang Confirmed.
         await _orderService.UpdateStatusAsync(
             order.Id, OrderStatus.Confirmed,
             note: $"Đã nhận thanh toán {amount:N0} đ qua PayOS.",

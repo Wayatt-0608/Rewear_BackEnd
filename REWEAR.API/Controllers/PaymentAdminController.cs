@@ -14,17 +14,20 @@ public class PaymentAdminController : ControllerBase
     private readonly IPayOsService _payOsService;
     private readonly IPaymentGatewayConfig _gatewayConfig;
     private readonly PayOsSettings _payOsSettings;
+    private readonly IPaymentService _paymentService;
     private readonly ILogger<PaymentAdminController> _logger;
 
     public PaymentAdminController(
         IPayOsService payOsService,
         IPaymentGatewayConfig gatewayConfig,
         PayOsSettings payOsSettings,
+        IPaymentService paymentService,
         ILogger<PaymentAdminController> logger)
     {
         _payOsService = payOsService;
         _gatewayConfig = gatewayConfig;
         _payOsSettings = payOsSettings;
+        _paymentService = paymentService;
         _logger = logger;
     }
 
@@ -70,6 +73,32 @@ public class PaymentAdminController : ControllerBase
     public async Task<ActionResult<ApiResponse>> ConfirmDefaultWebhook()
     {
         return await ConfirmWebhook(null);
+    }
+
+    /// <summary>
+    /// Đóng các phiên thanh toán hết hạn (manual trigger). Dùng khi:
+    /// 1. BackgroundService không chạy (Render free tier ngủ instance).
+    /// 2. Test/debug muốn đóng phiên ngay không đợi 60s.
+    /// </summary>
+    /// <remarks>
+    /// Endpoint này đã được bảo vệ bởi [Authorize(Roles = "Admin")] ở class level.
+    /// Logic bên trong giống hệt PaymentExpirationService - gọi trực tiếp
+    /// IPaymentService.ExpireStalePaymentsAsync để đóng phiên hết hạn + trả kho.
+    /// </remarks>
+    [HttpPost("expire-stale")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse>> ExpireStalePayments()
+    {
+        _logger.LogInformation("Admin yeu cau dong phien thanh toan het han.");
+
+        var processed = await _paymentService.ExpireStalePaymentsAsync(100);
+
+        return Ok(new ApiResponse
+        {
+            Success = true,
+            Message = $"Đã đóng {processed} phiên thanh toán hết hạn.",
+            Data = new { processed }
+        });
     }
 }
 
