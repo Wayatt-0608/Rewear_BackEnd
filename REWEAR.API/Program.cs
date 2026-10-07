@@ -258,6 +258,31 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddControllers();
 
+// ============================================
+// CORS (Task 11) - cho phép FE local (Vite/React/Angular)
+// gọi API từ Render production trong khi chưa deploy FE.
+// ============================================
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:5173",   // Vite (React/Vue)
+                "http://localhost:3000",   // CRA / Next.js dev
+                "http://localhost:4200",   // Angular dev
+                "http://localhost:8080",   // Vue CLI / general
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3000",
+                "https://rewear-wyb0.onrender.com", // Swagger + Production FE
+                "https://rewear-frontend.vercel.app", // Sẵn sàng cho FE production
+                "https://rewear-frontend.netlify.app"
+              )
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 // Cấu hình giới hạn upload (5MB)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
@@ -334,6 +359,9 @@ if (app.Environment.IsDevelopment())
     // Development co them developer-friendly middleware (chi tiet loi, ...)
     // Swagger da duoc mount o tren roi.
 }
+
+// CORS phải đặt TRƯỚC UseAuthentication để preflight OPTIONS không bị middleware auth chặn.
+app.UseCors("AllowFrontend");
 
 app.UseAuthentication();  // JWT Authentication
 app.UseRoleChecking();   // Role checking (log + chặn admin API cho non-Admin)
