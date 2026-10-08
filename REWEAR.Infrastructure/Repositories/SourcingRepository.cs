@@ -66,4 +66,16 @@ public class SourcingRepository : ISourcingRepository
 
         return result.ModifiedCount > 0;
     }
+
+    /// <inheritdoc />
+    public async Task<bool> IsImageUrlInUseAsync(string imageUrl)
+    {
+        // Find any sourcing request that uses this image URL
+        var filter = Builders<SourcingRequest>.Filter.ElemMatch(
+            x => x.ImageUrls,
+            url => url == imageUrl);
+
+        var count = await _sourcingRequests.CountDocumentsAsync(filter);
+        return count > 0;
+    }
 }

@@ -224,4 +224,26 @@ public class ProductRepository : IProductRepository
         // Escape special regex characters: . $ ^ { [ ( | ) * + ? \
         return System.Text.RegularExpressions.Regex.Escape(input);
     }
+
+    /// <inheritdoc />
+    public async Task<bool> IsImageUrlInUseByOtherProductAsync(string imageUrl, string? excludeProductId = null)
+    {
+        // Build filter to find products that have this image URL
+        var filter = Builders<Product>.Filter.ElemMatch(
+            x => x.ImageUrls,
+            url => url == imageUrl);
+
+        // Exclude the current product if specified
+        if (!string.IsNullOrEmpty(excludeProductId))
+        {
+            filter = Builders<Product>.Filter.And(
+                filter,
+                Builders<Product>.Filter.Ne(x => x.Id, excludeProductId)
+            );
+        }
+
+        // Count products using this URL (excluding the current one)
+        var count = await _products.CountDocumentsAsync(filter);
+        return count > 0;
+    }
 }
