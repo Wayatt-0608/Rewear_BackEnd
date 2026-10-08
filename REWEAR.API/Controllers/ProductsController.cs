@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using REWEAR.API.Models;
 using REWEAR.Application.DTOs;
 using REWEAR.Application.Interfaces;
@@ -13,6 +14,7 @@ public class ProductsController : ControllerBase
     private readonly IProductService _productService;
     private readonly ICloudinaryService _cloudinaryService;
     private readonly IPaymentService _paymentService;
+    private readonly ILogger<ProductsController> _logger;
 
     // Image validation constants
     private const int MinImages = 1;
@@ -22,11 +24,13 @@ public class ProductsController : ControllerBase
     public ProductsController(
         IProductService productService,
         ICloudinaryService cloudinaryService,
-        IPaymentService paymentService)
+        IPaymentService paymentService,
+        ILogger<ProductsController> logger)
     {
         _productService = productService;
         _cloudinaryService = cloudinaryService;
         _paymentService = paymentService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -211,30 +215,196 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật thông tin sản phẩm
+    /// Cập nhật thông tin sản phẩm với upload ảnh
     /// </summary>
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(string id, [FromBody] UpdateProductRequest request)
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> Update(string id, [FromForm] UpdateProductFormRequest request)
     {
+        // ===== VALIDATE PRODUCT EXISTS =====
+        var existingProduct = await _productService.GetByIdAsync(id);
+        if (existingProduct == null)
+        {
+            return NotFound(new { message = "Không tìm thấy sản phẩm." });
+        }
+
+        // ===== IMAGE VALIDATION =====
+        List<(string Url, string PublicId)> uploadedImages = new();
+        List<string> newImageUrls = new();
+        List<string>? keepImageUrls = request.KeepImageUrls;
+        bool clearAllImages = request.ClearAllImages;
+
+        // Validate new images if provided
+        if (request.Images != null && request.Images.Count > 0)
+        {
+            // Validate image count
+            if (request.Images.Count > MaxImages)
+            {
+                return BadRequest(new { message = $"Tối đa {MaxImages} hình ảnh cho mỗi sản phẩm." });
+            }
+
+            // Validate each image is not empty
+            foreach (var image in request.Images)
+            {
+                if (image == null || image.Length == 0)
+                {
+                    return BadRequest(new { message = "Có hình ảnh không hợp lệ hoặc trống." });
+                }
+            }
+
+            // ===== UPLOAD NEW IMAGES =====
+            try
+            {
+                for (int i = 0; i < request.Images.Count; i++)
+                {
+                    var image = request.Images[i];
+                    using var stream = image.OpenReadStream();
+
+                    var publicId = $"product_{Guid.NewGuid():N}";
+                    var uploadRequest = new ImageUploadRequest
+                    {
+                        FileStream = stream,
+                        FileName = image.FileName,
+                        Folder = ImageFolder,
+                        PublicId = publicId
+                    };
+
+                    var result = await _cloudinaryService.UploadImageAsync(uploadRequest);
+
+                    if (!result.Success)
+                    {
+                        // Rollback: delete all previously uploaded images
+                        await RollbackUploadedImages(uploadedImages);
+                        return BadRequest(new { message = $"Upload hình ảnh thất bại: {result.ErrorMessage}" });
+                    }
+
+                    uploadedImages.Add((result.Url!, result.PublicId!));
+                    newImageUrls.Add(result.Url!);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Rollback on unexpected error
+                await RollbackUploadedImages(uploadedImages);
+                return BadRequest(new { message = $"Lỗi khi upload hình ảnh: {ex.Message}" });
+            }
+        }
+
+        // ===== UPDATE PRODUCT =====
         try
         {
-            var product = await _productService.UpdateAsync(id, request);
-            
-            if (product == null)
+            // Build UpdateProductRequest from form data
+            var updateRequest = new UpdateProductRequest
             {
+                Title = request.Title,
+                Description = request.Description,
+                BrandId = request.BrandId,
+                CategoryId = request.CategoryId,
+                Price = request.Price,
+                Condition = request.Condition,
+                Size = request.Size,
+                Color = request.Color,
+                StockQuantity = request.StockQuantity
+            };
+
+            // Call service with image management
+            var updatedProduct = await _productService.UpdateWithImagesAsync(
+                id,
+                updateRequest,
+                newImageUrls,
+                keepImageUrls,
+                clearAllImages);
+
+            if (updatedProduct == null)
+            {
+                // Rollback uploaded images
+                await RollbackUploadedImages(uploadedImages);
                 return NotFound(new { message = "Không tìm thấy sản phẩm." });
             }
 
-            return Ok(product);
+            // ===== CLEANUP OLD IMAGES (after successful update) =====
+            // Get list of old images that are no longer used
+            var unusedImages = await _productService.GetUnusedImagesToDeleteAsync(
+                id,
+                updatedProduct.ImageUrls);
+
+            // Delete unused images - await to ensure completion before response
+            // Errors are logged but don't rollback the successful update
+            await DeleteUnusedImagesSafeAsync(unusedImages);
+
+            return Ok(updatedProduct);
         }
         catch (ArgumentException ex)
         {
+            // Rollback: delete all uploaded new images when product update fails
+            await RollbackUploadedImages(uploadedImages);
             return BadRequest(new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
+            // Rollback: delete all uploaded new images when product update fails
+            await RollbackUploadedImages(uploadedImages);
             return Conflict(new { message = ex.Message });
         }
+        catch (Exception ex)
+        {
+            // Rollback on unexpected error
+            await RollbackUploadedImages(uploadedImages);
+            return BadRequest(new { message = $"Lỗi khi cập nhật sản phẩm: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Helper method to safely delete unused images after successful update.
+    /// </summary>
+    private async Task DeleteUnusedImagesSafeAsync(List<string> unusedImageUrls)
+    {
+        foreach (var imageUrl in unusedImageUrls)
+        {
+            try
+            {
+                // Extract public ID from URL for deletion
+                var publicId = ExtractPublicIdFromUrl(imageUrl);
+                if (!string.IsNullOrEmpty(publicId))
+                {
+                    await _cloudinaryService.DeleteImageAsync(publicId);
+                    _logger.LogInformation("Deleted unused image: {PublicId}", publicId);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log warning but don't fail - cleanup failure shouldn't mask successful update
+                _logger.LogWarning(ex, "Failed to delete unused image: {ImageUrl}", imageUrl);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extract public ID from Cloudinary URL for deletion.
+    /// </summary>
+    private static string? ExtractPublicIdFromUrl(string url)
+    {
+        // Cloudinary URL format: https://res.cloudinary.com/{cloud}/image/upload/v{version}/{folder}/{public_id}.{ext}
+        try
+        {
+            var uri = new Uri(url);
+            var path = uri.AbsolutePath; // /image/upload/v123456789/rewear/products/abc123.jpg
+            var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            // Find "upload" segment, then skip "v{version}", then take the rest as public ID
+            int uploadIndex = Array.IndexOf(segments, "upload");
+            if (uploadIndex >= 0 && uploadIndex + 2 < segments.Length)
+            {
+                // Skip "upload" and version segment (v123456789)
+                var publicIdParts = segments.Skip(uploadIndex + 2);
+                return string.Join("/", publicIdParts);
+            }
+        }
+        catch
+        {
+            // Ignore parsing errors
+        }
+        return null;
     }
 
     /// <summary>

@@ -33,4 +33,11 @@ public interface ISourcingRepository
     /// Cập nhật sourcing request.
     /// </summary>
     Task<bool> UpdateAsync(SourcingRequest sourcingRequest);
+
+    /// <summary>
+    /// Kiểm tra xem image URL có đang được sử dụng bởi sourcing request nào không.
+    /// </summary>
+    /// <param name="imageUrl">URL ảnh cần kiểm tra.</param>
+    /// <returns>True nếu có sourcing request đang sử dụng URL này.</returns>
+    Task<bool> IsImageUrlInUseAsync(string imageUrl);
 }
