@@ -218,7 +218,9 @@ public class PaymentService : IPaymentService
             order.Id, OrderStatus.Confirmed,
             note: $"Đã nhận thanh toán {amount:N0} đ qua PayOS.",
             trackingNumber: null, estimatedDeliveryDate: null,
-            changedBy: OrderStatusChangedBy.System, changedByUserId: null);
+            changedBy: OrderStatusChangedBy.System,
+            changedByUserId: null,
+            changedByName: "System");
 
         return new ApiResponse
         {

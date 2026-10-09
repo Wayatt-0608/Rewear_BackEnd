@@ -44,4 +44,9 @@ public interface IOrderRepository
     /// Đếm số đơn theo trạng thái (dùng cho dashboard Task 18).
     /// </summary>
     Task<long> CountByStatusAsync(OrderStatus status);
+
+    /// <summary>
+    /// Lấy danh sách đơn theo trạng thái (cho dashboard admin/staff).
+    /// </summary>
+    Task<List<Order>> GetByStatusAsync(OrderStatus status);
 }

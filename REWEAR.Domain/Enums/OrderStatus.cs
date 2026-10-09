@@ -38,5 +38,11 @@ public enum OrderStatus
     /// Hết thời gian thanh toán, hệ thống tự đóng đơn.
     /// Tách riêng với Cancelled để đo được tỷ lệ bỏ giỏ do khách không hoàn tất thanh toán.
     /// </summary>
-    PaymentExpired = 5
+    PaymentExpired = 5,
+
+    /// <summary>
+    /// Giao hàng thất bại sau khi đã rời kho (shipper không giao được, khách từ chối nhận...).
+    /// Admin sẽ quyết định Reship (về Confirmed) hoặc hủy vĩnh viễn (về Cancelled).
+    /// </summary>
+    Failed = 6
 }

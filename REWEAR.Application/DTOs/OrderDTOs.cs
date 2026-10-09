@@ -156,8 +156,14 @@ public class OrderStatusHistoryResponse
 
     public string? Note { get; set; }
 
-    /// <summary>Ai thực hiện thay đổi (Customer / Staff / System).</summary>
+    /// <summary>Ai thực hiện thay đổi (Customer / Staff / System / Shipper).</summary>
     public string ChangedBy { get; set; } = string.Empty;
+
+    /// <summary>Id người thao tác (null nếu là System).</summary>
+    public string? ChangedByUserId { get; set; }
+
+    /// <summary>Tên người thao tác tại thời điểm đổi (snapshot, FE dùng để hiển thị).</summary>
+    public string? ChangedByName { get; set; }
 
     public DateTime CreatedAt { get; set; }
 }

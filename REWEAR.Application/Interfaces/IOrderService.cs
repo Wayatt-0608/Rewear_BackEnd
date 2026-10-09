@@ -46,10 +46,19 @@ public interface IOrderService
 
     /// <summary>
     /// Cập nhật trạng thái đơn (Admin/Shipper) và ghi vào timeline (Task 7).
-    /// Tuân thủ state machine: AwaitingPayment → Confirmed → Shipping → Delivered.
+    /// Tuân thủ state machine: AwaitingPayment → Confirmed → Shipping → Delivered,
+    /// và các đường đặc biệt như Failed → Confirmed (Reship) / Failed → Cancelled (Hủy vĩnh viễn).
     /// </summary>
+    /// <param name="orderId">Id đơn hàng cần cập nhật.</param>
+    /// <param name="newStatus">Trạng thái mới.</param>
+    /// <param name="note">Ghi chú timeline.</param>
+    /// <param name="trackingNumber">Mã vận đơn (bắt buộc khi sang Shipping).</param>
+    /// <param name="estimatedDeliveryDate">Ngày dự kiến giao.</param>
+    /// <param name="changedBy">Vai trò thực hiện (Staff / Shipper / System).</param>
+    /// <param name="changedByUserId">Id user thực hiện.</param>
+    /// <param name="changedByName">Tên hiển thị của user (snapshot cho timeline).</param>
     Task<ApiResponse> UpdateStatusAsync(
         string orderId, OrderStatus newStatus, string? note,
         string? trackingNumber, DateTime? estimatedDeliveryDate,
-        OrderStatusChangedBy changedBy, string? changedByUserId);
+        OrderStatusChangedBy changedBy, string? changedByUserId, string? changedByName);
 }

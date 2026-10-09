@@ -17,5 +17,8 @@ public enum ShippingStatus
     Delivered = 2,
 
     /// <summary>Giao thất bại / đơn vị vận chuyển trả lại.</summary>
-    Failed = 3
+    Failed = 3,
+
+    /// <summary>Đơn về kho sau khi shipper trả hàng (do thất bại nhiều lần) và admin đã quyết định hủy vĩnh viễn.</summary>
+    Returned = 4
 }
