@@ -20,6 +20,11 @@ ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 ServicePointManager.ServerCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
 
 var builder = WebApplication.CreateBuilder(args);
+// Allow the deployed REWEAR frontend to call this API from the browser.
+builder.Services.AddCors(options => options.AddPolicy("RewearFrontend", policy =>
+    policy.WithOrigins("https://rewear-wyb0.onrender.com")
+        .AllowAnyHeader()
+        .AllowAnyMethod()));
 
 // Đọc cấu hình MongoDB từ appsettings.json
 var mongoSettings = new MongoDbSettings
@@ -224,6 +229,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseCors("RewearFrontend");
 app.UseAuthentication();  // JWT Authentication
 app.UseRoleChecking();   // Role checking (log + chặn admin API cho non-Admin)
 app.UseAuthorization();  // Authorization Policies
