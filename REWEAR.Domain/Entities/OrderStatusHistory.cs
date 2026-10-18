@@ -9,6 +9,7 @@ namespace REWEAR.Domain.Entities;
 /// Mỗi lần đổi trạng thái sẽ INSERT 1 document mới, không sửa document cũ,
 /// để giữ được lịch sử đầy đủ cho người mua và đội vận chuyển.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class OrderStatusHistory
 {
     /// <summary>Khóa chính của mốc lịch sử.</summary>
@@ -34,7 +35,7 @@ public class OrderStatusHistory
     [BsonElement("note")]
     public string? Note { get; set; }
 
-    /// <summary>Ai thực hiện thay đổi (Customer / Staff / System).</summary>
+    /// <summary>Ai thực hiện thay đổi (Customer / Staff / System / Shipper).</summary>
     [BsonElement("changedBy")]
     [BsonRepresentation(BsonType.String)]
     public OrderStatusChangedBy ChangedBy { get; set; } = OrderStatusChangedBy.System;
@@ -42,6 +43,13 @@ public class OrderStatusHistory
     /// <summary>Id người dùng thao tác (null nếu là System).</summary>
     [BsonElement("changedByUserId")]
     public string? ChangedByUserId { get; set; }
+
+    /// <summary>
+    /// Tên người thao tác tại thời điểm đổi trạng thái (snapshot).
+    /// FE dùng để hiển thị "Nguyễn Văn A đã xác nhận đơn" thay vì chỉ show id.
+    /// </summary>
+    [BsonElement("changedByName")]
+    public string? ChangedByName { get; set; }
 
     /// <summary>Thời điểm thay đổi.</summary>
     [BsonElement("createdAt")]

@@ -71,6 +71,14 @@ public class OrderRepository : IOrderRepository
         return await _orders.CountDocumentsAsync(o => o.Status == status);
     }
 
+    public async Task<List<Order>> GetByStatusAsync(OrderStatus status)
+    {
+        return await _orders
+            .Find(o => o.Status == status)
+            .SortByDescending(o => o.CreatedAt)
+            .ToListAsync();
+    }
+
     /// <summary>
     /// Ghép filter: theo userId và (nếu có) theo trạng thái.
     /// </summary>

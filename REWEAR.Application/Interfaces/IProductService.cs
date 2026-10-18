@@ -53,4 +53,27 @@ public interface IProductService
     /// Cập nhật trạng thái thương mại của sản phẩm.
     /// </summary>
     Task<ProductResponse?> UpdateStatusAsync(string id, ProductStatus status);
+
+    /// <summary>
+    /// Cập nhật sản phẩm với xử lý ảnh nâng cao.
+    /// </summary>
+    /// <param name="id">Product ID</param>
+    /// <param name="request">Update request</param>
+    /// <param name="newImageUrls">Danh sách URL ảnh mới đã upload</param>
+    /// <param name="keepImageUrls">Danh sách URL ảnh cũ cần giữ lại</param>
+    /// <param name="clearAllImages">Cờ xóa tất cả ảnh cũ</param>
+    Task<ProductResponse?> UpdateWithImagesAsync(
+        string id,
+        UpdateProductRequest request,
+        List<string> newImageUrls,
+        List<string>? keepImageUrls,
+        bool clearAllImages);
+
+    /// <summary>
+    /// Kiểm tra ảnh cũ có cần xóa không.
+    /// </summary>
+    /// <param name="productId">Product ID</param>
+    /// <param name="currentImageUrls">Danh sách URL ảnh hiện tại sau khi update</param>
+    /// <returns>Danh sách URL ảnh không còn sử dụng và có thể xóa</returns>
+    Task<List<string>> GetUnusedImagesToDeleteAsync(string productId, List<string> currentImageUrls);
 }

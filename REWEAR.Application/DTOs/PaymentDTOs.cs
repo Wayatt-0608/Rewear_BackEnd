@@ -31,7 +31,7 @@ public class CheckoutSessionResponse
     public string? PaymentLinkId { get; set; }
 
     /// <summary>
-    /// Thời điểm hết hạn của phiên thanh toán (15 phút kể từ lúc tạo đơn).
+    /// Thời điểm hết hạn của phiên thanh toán (5 phút kể từ lúc tạo đơn - DEV/TEST).
     /// Frontend nên hiển thị đồng hồ đếm ngược và cảnh báo khách trước khi hết giờ.
     /// </summary>
     public DateTime ExpiresAt { get; set; }

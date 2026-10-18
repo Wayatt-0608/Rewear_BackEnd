@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using MongoDB.Driver;
 using REWEAR.Domain.Entities;
 using REWEAR.Infrastructure.Persistence;
@@ -53,6 +54,25 @@ public class MongoDbContext
                     .Unset("phoneNumber")
                     .Unset("birthDate")
             );
+
+            // Payment: uniqify các bản ghi cũ có PayOsTransactionId null/"".
+            // Index unique cũ (không partial filter) đã chặn insert 2 doc cùng null
+            // → gây 500 khi checkout. Set GUID tạm để mỗi bản ghi có giá trị
+            // khác nhau; idempotent (chỉ set khi đang null/"").
+            var paymentsColl = _database.GetCollection<BsonDocument>("Payments");
+            var staleFilter = Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Exists("payosTransactionId", false),
+                Builders<BsonDocument>.Filter.Eq("payosTransactionId", BsonNull.Value),
+                Builders<BsonDocument>.Filter.Eq("payosTransactionId", "")
+            );
+            var stalePayments = paymentsColl.Find(staleFilter).ToList();
+            foreach (var doc in stalePayments)
+            {
+                paymentsColl.UpdateOne(
+                    Builders<BsonDocument>.Filter.Eq("_id", doc["_id"]),
+                    Builders<BsonDocument>.Update.Set("payosTransactionId", Guid.NewGuid().ToString())
+                );
+            }
         }
         catch (MongoConnectionException)
         {
@@ -147,15 +167,29 @@ public class MongoDbContext
 
             // Task 8: transactionId của PayOS phải unique. Nếu 2 giao dịch khác nhau
             // cùng nhận 1 transactionId thì đó là lỗi đồng bộ hoặc dữ liệu bị giả mạo.
-            _database.GetCollection<Payment>("Payments").Indexes.CreateOne(
+            // Index chỉ áp dụng khi field là chuỗi (đã có transactionId), tránh
+            // xung đột giữa các phiên chưa thanh toán (PayOsTransactionId = null).
+            var paymentsColl = _database.GetCollection<Payment>("Payments");
+
+            // Drop index cũ nếu tồn tại (idempotent: lỗi nếu không có sẽ nuốt ở catch bên ngoài).
+            try
+            {
+                paymentsColl.Indexes.DropOne("ux_payments_payosTransactionId");
+            }
+            catch (MongoCommandException)
+            {
+                // Index chưa có hoặc đã đúng -> bỏ qua.
+            }
+
+            paymentsColl.Indexes.CreateOne(
                 new CreateIndexModel<Payment>(
                     Builders<Payment>.IndexKeys.Ascending(p => p.PayOsTransactionId),
                     new CreateIndexOptions<Payment>
                     {
                         Unique = true,
                         Name = "ux_payments_payosTransactionId",
-                        // Chỉ áp dụng cho phiên đã có transactionId; các phiên
-                        // chưa thanh toán có field này = null nên không bị xung đột.
+                        // Chỉ áp dụng khi PayOsTransactionId là chuỗi và không null.
+                        // Phiên chưa thanh toán có field null/"" sẽ không bị xung đột.
                         PartialFilterExpression = Builders<Payment>.Filter
                             .Type(p => p.PayOsTransactionId, MongoDB.Bson.BsonType.String)
                     }

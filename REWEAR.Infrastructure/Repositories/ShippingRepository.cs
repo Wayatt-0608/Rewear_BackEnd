@@ -7,7 +7,7 @@ using REWEAR.Infrastructure.Persistence;
 namespace REWEAR.Infrastructure.Repositories;
 
 /// <summary>
-/// Repository cho Shipping - implementation với MongoDB (Task 9).
+/// Repository cho Shipping - implementation với MongoDB (Task 9 + Task Shipper).
 /// </summary>
 public class ShippingRepository : IShippingRepository
 {
@@ -34,11 +34,33 @@ public class ShippingRepository : IShippingRepository
         return await _shippings.Find(s => s.OrderId == orderId).FirstOrDefaultAsync();
     }
 
-    public async Task<List<Shipping>> GetByStatusAsync(ShippingStatus status)
+    public async Task<List<Shipping>> GetByShipperIdAsync(string shipperId, ShippingStatus? status)
     {
+        var filters = new List<FilterDefinition<Shipping>>
+        {
+            Builders<Shipping>.Filter.Eq(s => s.ShipperId, shipperId)
+        };
+
+        if (status.HasValue)
+        {
+            filters.Add(Builders<Shipping>.Filter.Eq(s => s.Status, status.Value));
+        }
+
         return await _shippings
-            .Find(s => s.Status == status)
-            .SortBy(s => s.CreatedAt)
+            .Find(Builders<Shipping>.Filter.And(filters))
+            .SortByDescending(s => s.UpdatedAt)
+            .ToListAsync();
+    }
+
+    public async Task<List<Shipping>> GetAllAsync(ShippingStatus? status)
+    {
+        var filter = status.HasValue
+            ? Builders<Shipping>.Filter.Eq(s => s.Status, status.Value)
+            : Builders<Shipping>.Filter.Empty;
+
+        return await _shippings
+            .Find(filter)
+            .SortByDescending(s => s.UpdatedAt)
             .ToListAsync();
     }
 }

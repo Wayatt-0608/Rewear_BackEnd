@@ -15,19 +15,22 @@ public class OrderService : IOrderService
     private readonly IProductRepository _productRepository;
     private readonly IAddressRepository _addressRepository;
     private readonly IOrderStatusHistoryRepository _historyRepository;
+    private readonly IUserRepository _userRepository;
 
     public OrderService(
         IOrderRepository orderRepository,
         ICartRepository cartRepository,
         IProductRepository productRepository,
         IAddressRepository addressRepository,
-        IOrderStatusHistoryRepository historyRepository)
+        IOrderStatusHistoryRepository historyRepository,
+        IUserRepository userRepository)
     {
         _orderRepository = orderRepository;
         _cartRepository = cartRepository;
         _productRepository = productRepository;
         _addressRepository = addressRepository;
         _historyRepository = historyRepository;
+        _userRepository = userRepository;
     }
 
     // ============================================
@@ -131,13 +134,17 @@ public class OrderService : IOrderService
 
         // ===== 5. GHI MỐC TIMELINE ĐẦU TIÊN (Task 7) =====
         // Đơn bắt đầu ở AwaitingPayment: sản phẩm đang giữ chỗ chờ khách trả tiền.
+        // Lấy tên user để snapshot vào timeline (hiển thị đẹp hơn cho FE).
+        var buyer = await _userRepository.GetByIdAsync(userId);
         await _historyRepository.CreateAsync(new OrderStatusHistory
         {
             OrderId = order.Id,
             FromStatus = null,
             ToStatus = OrderStatus.AwaitingPayment,
             Note = "Đơn hàng đã được tạo, đang chờ thanh toán.",
-            ChangedBy = OrderStatusChangedBy.Customer
+            ChangedBy = OrderStatusChangedBy.Customer,
+            ChangedByUserId = userId,
+            ChangedByName = buyer?.FullName
         });
 
         // ===== 6. XÓA KHỎI GIỎ CHỈ NHÓM ĐÃ MUA =====
@@ -406,6 +413,10 @@ public class OrderService : IOrderService
 
         await _orderRepository.UpdateAsync(order);
 
+        // Lấy tên user để snapshot vào timeline.
+        var user = await _userRepository.GetByIdAsync(userId);
+        var userName = user?.FullName;
+
         // Ghi vào timeline (Task 7).
         await _historyRepository.CreateAsync(new OrderStatusHistory
         {
@@ -414,7 +425,8 @@ public class OrderService : IOrderService
             ToStatus = OrderStatus.Cancelled,
             Note = order.CancelReason,
             ChangedBy = OrderStatusChangedBy.Customer,
-            ChangedByUserId = userId
+            ChangedByUserId = userId,
+            ChangedByName = userName
         });
 
         var response = await BuildOrderResponseAsync(order);
@@ -438,7 +450,7 @@ public class OrderService : IOrderService
     public async Task<ApiResponse> UpdateStatusAsync(
         string orderId, OrderStatus newStatus, string? note,
         string? trackingNumber, DateTime? estimatedDeliveryDate,
-        OrderStatusChangedBy changedBy, string? changedByUserId)
+        OrderStatusChangedBy changedBy, string? changedByUserId, string? changedByName)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
         if (order == null)
@@ -492,7 +504,8 @@ public class OrderService : IOrderService
             ToStatus = newStatus,
             Note = note,
             ChangedBy = changedBy,
-            ChangedByUserId = changedByUserId
+            ChangedByUserId = changedByUserId,
+            ChangedByName = changedByName
         });
 
         return new ApiResponse
@@ -504,9 +517,11 @@ public class OrderService : IOrderService
     }
 
     /// <summary>
-    /// Sơ đồ chuyển trạng thái hợp lệ (Task 7).
+    /// Sơ đồ chuyển trạng thái hợp lệ (Task 7 + Task Shipper).
     /// AwaitingPayment → Confirmed → Shipping → Delivered, kèm 2 đường hủy
     /// (khách chủ động hủy / hết hạn thanh toán) chỉ mở khi chưa thu tiền.
+    /// Shipping có thể thất bại (Failed); từ Failed admin reship về Confirmed hoặc
+    /// hủy vĩnh viễn về Cancelled.
     /// </summary>
     private static bool IsValidTransition(OrderStatus from, OrderStatus to)
     {
@@ -518,7 +533,11 @@ public class OrderService : IOrderService
             (OrderStatus.AwaitingPayment, OrderStatus.Cancelled) => true,
             (OrderStatus.AwaitingPayment, OrderStatus.PaymentExpired) => true,
             (OrderStatus.Confirmed, OrderStatus.Shipping) => true,
+            (OrderStatus.Confirmed, OrderStatus.Cancelled) => true,    // staff hủy đơn trước khi giao
             (OrderStatus.Shipping, OrderStatus.Delivered) => true,
+            (OrderStatus.Shipping, OrderStatus.Failed) => true,        // shipper giao thất bại
+            (OrderStatus.Failed, OrderStatus.Confirmed) => true,       // admin Reship
+            (OrderStatus.Failed, OrderStatus.Cancelled) => true,       // admin hủy vĩnh viễn
             _ => false
         };
     }
@@ -561,6 +580,8 @@ public class OrderService : IOrderService
                 ToStatus = h.ToStatus.ToString(),
                 Note = h.Note,
                 ChangedBy = h.ChangedBy.ToString(),
+                ChangedByUserId = h.ChangedByUserId,
+                ChangedByName = h.ChangedByName,
                 CreatedAt = h.CreatedAt
             }).ToList()
         };

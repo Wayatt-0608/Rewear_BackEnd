@@ -47,9 +47,9 @@ public class PaymentService : IPaymentService
     /// Tạo phiên thanh toán cho đơn và gọi PayOS để lấy trang thanh toán.
     /// </summary>
     /// <param name="orderId">Id của đơn hàng cần tạo phiên thanh toán.</param>
-    /// <param name="expirationMinutes">Số phút khách được giữ chỗ sản phẩm (mặc định 15).</param>
+    /// <param name="expirationMinutes">Số phút khách được giữ chỗ sản phẩm (mặc định 5 - DEV/TEST, prod nên 15).</param>
     public async Task<(ApiResponse Response, CheckoutSessionResponse? Session)> CreateSessionAsync(
-        string orderId, int expirationMinutes = 15)
+        string orderId, int expirationMinutes = 5)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
         if (order == null)
@@ -63,13 +63,16 @@ public class PaymentService : IPaymentService
                 ApiErrorCode.Conflict), null);
         }
 
-        if (expirationMinutes < 5 || expirationMinutes > 60)
-            expirationMinutes = 15;
+        // === DEV/TEST MODE: chỉ 5 phút để dễ test ===
+        // Trên PayOS cũng phải set expiration tương ứng (5 phút) để đồng bộ.
+        // Khi deploy prod, đổi lại 15 và set PayOS expiration = 900 giây.
+        if (expirationMinutes < 2 || expirationMinutes > 60)
+            expirationMinutes = 5;
 
         DateTime expiresAt = DateTime.UtcNow.AddMinutes(expirationMinutes);
 
-        // Đóng phiên cũ (nếu có) trước khi tạo phiên mới để không nhận webhook
-        // nhầm vào phiên đã hết hạn.
+        // Đóng phiên cũ (nếu có) trước khi tạo phiên mới để polling không nhầm
+        // vào phiên đã hết hạn.
         var previous = await _paymentRepository.GetLatestByOrderIdAsync(orderId);
         if (previous != null && previous.Status == PaymentStatus.Pending)
         {
@@ -91,10 +94,15 @@ public class PaymentService : IPaymentService
 
         // Tạo payment request trên PayOS. Nếu PayOS từ chối (mạng lỗi, key sai...)
         // thì phải trả sản phẩm về kho, nếu không sẽ kẹt hàng vô thời gian.
+        //
+        // returnUrl / cancelUrl: PayOS redirect về đây khi khách đóng trang thanh
+        // toán. Cả 2 đều trỏ về cùng trang "đợi thanh toán" của FE, kèm orderCode
+        // để FE tự polling GET /api/payments/{id}/status. Không phụ thuộc webhook
+        // nữa nên returnUrl chỉ cần đưa khách về UI polling.
         var result = await _payOsService.CreatePaymentRequestAsync(
             order.OrderCode, order.TotalAmount,
-            returnUrl: $"{GetBaseUrl()}/payment/return",
-            cancelUrl: $"{GetBaseUrl()}/payment/cancel",
+            returnUrl: $"{GetBaseUrl()}/payment/waiting?orderCode={order.OrderCode}",
+            cancelUrl: $"{GetBaseUrl()}/payment/waiting?orderCode={order.OrderCode}&cancelled=1",
             expiredAt: expiresAt);
 
         if (result == null)
@@ -110,7 +118,7 @@ public class PaymentService : IPaymentService
             }, null);
         }
 
-        payment.PayOsTransactionId = result.Id;
+        payment.PayOsTransactionId = result.PaymentLinkId;
         payment.PaymentLinkId = result.PaymentLinkId;
         payment.CheckoutUrl = result.CheckoutUrl;
         payment.QrCodeUrl = result.QrCode;
@@ -187,13 +195,32 @@ public class PaymentService : IPaymentService
 
         await _paymentRepository.UpdateAsync(payment);
 
-        // Chuyển đơn sang Confirmed. Sản phẩm VẪN giữ ở Reserved: chỉ khi giao
-        // thành công mới chốt Sold, để việc hủy/hoàn tiền còn trả kho được.
+        // ✅ Ghi log rõ ràng để audit trail khi có tranh chấp.
+        _logger.LogInformation(
+            "PAYMENT SUCCESS: don {OrderCode}, amount={Amount}, transactionId={TransactionId}",
+            order.OrderCode, amount, transactionId);
+
+        // ✅ OPTION A: Chuyển Product sang Sold ngay khi thanh toán thành công.
+        // Mỗi listing là 1 sản phẩm độc lập - mua xong thì Sold luôn.
+        foreach (var item in order.Items)
+        {
+            var committed = await _productRepository.CommitStockAsync(item.ProductId, item.Quantity);
+            if (committed > 0)
+            {
+                _logger.LogInformation(
+                    "San pham {ProductId} da chuyen sang Sold sau thanh toan.",
+                    item.ProductId);
+            }
+        }
+
+        // Chuyển đơn sang Confirmed.
         await _orderService.UpdateStatusAsync(
             order.Id, OrderStatus.Confirmed,
             note: $"Đã nhận thanh toán {amount:N0} đ qua PayOS.",
             trackingNumber: null, estimatedDeliveryDate: null,
-            changedBy: OrderStatusChangedBy.System, changedByUserId: null);
+            changedBy: OrderStatusChangedBy.System,
+            changedByUserId: null,
+            changedByName: "System");
 
         return new ApiResponse
         {
@@ -256,9 +283,9 @@ public class PaymentService : IPaymentService
     /// Tra cứu trạng thái thanh toán của đơn.
     /// </summary>
     /// <remarks>
-    /// Nếu hệ thống đang báo Pending nhưng đã quá 2 phút, chủ động gọi PayOS để hỏi
-    /// lại — đường đối soán chữa trường hợp webhook bị mất (khách đã trừ tiền mà
-    /// hệ thống vẫn báo chờ).
+    /// Polling thay cho webhook: cứ Pending là gọi thẳng PayOS server để hỏi.
+    /// PayOS trả về PAID/CANCELLED/EXPIRED thì cập nhật DB luôn. Idempotent:
+    /// gọi nhiều lần cũng chỉ chốt đơn 1 lần.
     /// </remarks>
     public async Task<PaymentStatusResponse?> GetStatusAsync(string orderId, string? userId)
     {
@@ -274,10 +301,9 @@ public class PaymentService : IPaymentService
             return null;
 
         // ===== ĐỐI SOÁT CHỦ ĐỘNG =====
-        // Phiên vẫn Pending và đã quá 2 phút: hỏi thẳng PayOS giao dịch đã thành
-        // công chưa. Đây là lưới an toàn cho case webhook mất.
+        // Phiên vẫn Pending: hỏi thẳng PayOS trạng thái thật của giao dịch.
+        // Đây là cách backend phát hiện khách đã trả tiền khi không có webhook.
         if (payment.Status == PaymentStatus.Pending
-            && DateTime.UtcNow > payment.CreatedAt.AddMinutes(2)
             && !string.IsNullOrWhiteSpace(payment.PayOsTransactionId))
         {
             if (await ReconcileWithPayOsAsync(payment, order))
@@ -312,27 +338,210 @@ public class PaymentService : IPaymentService
     /// <summary>
     /// Hỏi PayOS về trạng thái thật của giao dịch và cập nhật nếu cần.
     /// </summary>
-    /// <summary>
-    /// Hỏi PayOS về trạng thái thật của giao dịch và cập nhật nếu cần.
-    /// </summary>
-    /// <returns>True nếu đã chốt được giao dịch thành công.</returns>
+    /// <remarks>
+    /// Xử lý cả 3 trạng thái kết thúc:
+    /// - PAID: chốt thanh toán, chuyển đơn sang Confirmed.
+    /// - CANCELLED: khách bấm huỷ, trả kho + chuyển đơn sang PaymentExpired.
+    /// - EXPIRED: phiên hết hạn trên PayOS, trả kho + chuyển đơn sang PaymentExpired.
+    /// </remarks>
+    /// <returns>True nếu giao dịch đã được chốt (PAID hoặc CANCELLED/EXPIRED).</returns>
     private async Task<bool> ReconcileWithPayOsAsync(Payment payment, Order order)
     {
         var info = await _payOsService.GetTransactionAsync(payment.PayOsTransactionId!);
         if (info == null)
             return false;
 
-        if (!string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
-            return false;
+        if (string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase)
+            || (info.PaidAmount > 0 && info.PaidAmount >= payment.Amount))
+        {
+            // ✅ Trường hợp quan trọng: PayOS trả EXPIRED/CANCELLED nhưng thực tế
+            // paidAmount > 0 nghĩa là khách ĐÃ TRẢ TIỀN. Phải chốt đơn PAID ngay.
+            if (!string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "PayOS tra ve status={Status} nhung paidAmount={Amount} > 0 cho don {OrderCode}. " +
+                    "Xu ly nhu PAID de tranh mat tien khach.",
+                    info.Status, info.PaidAmount, order.OrderCode);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Doi soat thanh cong don {OrderCode}: PayOS da ghi nhan tien.",
+                    order.OrderCode);
+            }
+
+            var result = await HandleWebhookSuccessAsync(
+                order.OrderCode, info.Id, info.PaidAmount);
+
+            return result.Success;
+        }
+
+        // Khách huỷ hoặc phiên hết hạn trên PayOS (chưa nhận tiền).
+        // Xử lý luôn để FE không phải đợi background service chạy.
+        if (string.Equals(info.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(info.Status, "EXPIRED", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Doi soat phien {OrderCode} da dong ben PayOS (status={Status}).",
+                order.OrderCode, info.Status);
+
+            var result = await HandleWebhookFailedAsync(
+                order.OrderCode,
+                info.Status.Equals("CANCELLED", StringComparison.OrdinalIgnoreCase)
+                    ? "Khách huỷ thanh toán."
+                    : "Phiên thanh toán đã hết hạn.");
+
+            return result.Success;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Đối soát chủ động với PayOS: gọi thẳng server PayOS để xác minh trạng thái
+    /// thanh toán và cập nhật DB nếu có thay đổi. Đây là cơ chế thay thế webhook
+    /// trong kiến trúc không dùng Cloudflare Tunnel/Worker.
+    /// </summary>
+    /// <remarks>
+    /// Flow:
+    /// 1. Lấy order + payment gần nhất trong DB.
+    /// 2. Nếu đơn đã ở trạng thái kết thúc (Confirmed/Cancelled/PaymentExpired): trả về status hiện tại.
+    /// 3. Nếu chưa có paymentLinkId (chưa từng tạo phiên PayOS): trả về status hiện tại.
+    /// 4. Gọi PayOS GET /v2/payment-requests/{id}.
+    /// 5. Nếu PAID: gọi HandleWebhookSuccessAsync để chốt thanh toán.
+    /// 6. Nếu CANCELLED/EXPIRED: gọi HandleWebhookFailedAsync để trả kho + hủy đơn.
+    /// 7. Trả về status mới nhất sau khi đối soát.
+    /// </remarks>
+    public async Task<PaymentStatusResponse?> ReconcileAsync(string orderId)
+    {
+        var order = await _orderRepository.GetByIdAsync(orderId);
+        if (order == null)
+        {
+            _logger.LogWarning("Reconcile: khong tim thay don {OrderId}", orderId);
+            return null;
+        }
+
+        // Đơn đã chốt rồi thì không cần đối soát nữa.
+        if (order.Status is OrderStatus.Confirmed
+            or OrderStatus.Shipping
+            or OrderStatus.Delivered
+            or OrderStatus.Cancelled
+            or OrderStatus.PaymentExpired)
+        {
+            return new PaymentStatusResponse
+            {
+                OrderId = order.Id,
+                OrderCode = order.OrderCode,
+                PaymentStatus = "Paid",
+                OrderStatus = order.Status.ToString(),
+                IsPaid = order.Status is OrderStatus.Confirmed
+                    or OrderStatus.Shipping
+                    or OrderStatus.Delivered,
+                IsExpired = order.Status == OrderStatus.PaymentExpired,
+                ExpiresInSeconds = 0
+            };
+        }
+
+        var payment = await _paymentRepository.GetLatestByOrderIdAsync(orderId);
+        if (payment == null || string.IsNullOrWhiteSpace(payment.PayOsTransactionId))
+        {
+            _logger.LogWarning(
+                "Reconcile: don {OrderCode} chua co phien PayOS de doi soat.",
+                order.OrderCode);
+            return new PaymentStatusResponse
+            {
+                OrderId = order.Id,
+                OrderCode = order.OrderCode,
+                PaymentStatus = "Pending",
+                OrderStatus = order.Status.ToString(),
+                IsPaid = false,
+                IsExpired = false,
+                ExpiresInSeconds = (int)Math.Max(0d,
+                    ((payment?.ExpiresAt ?? DateTime.UtcNow) - DateTime.UtcNow).TotalSeconds)
+            };
+        }
+
+        // Gọi PayOS lấy trạng thái thật.
+        _logger.LogInformation(
+            "Reconcile: dang hoi PayOS ve don {OrderCode} (paymentLinkId={PaymentLinkId})",
+            order.OrderCode, payment.PayOsTransactionId);
+
+        var info = await _payOsService.GetTransactionAsync(payment.PayOsTransactionId);
+        if (info == null)
+        {
+            _logger.LogError(
+                "Reconcile: khong goi duoc PayOS cho don {OrderCode}",
+                order.OrderCode);
+            return null;
+        }
 
         _logger.LogInformation(
-            "Doi soat thanh cong don {OrderCode}: PayOS da ghi nhan tien du webhook bi mat.",
-            order.OrderCode);
+            "Reconcile: PayOS tra ve don {OrderCode} status={Status}, amountPaid={Amount}",
+            order.OrderCode, info.Status, info.PaidAmount);
 
-        var result = await HandleWebhookSuccessAsync(
-            order.OrderCode, info.Id, info.PaidAmount);
+        // Xử lý theo status từ PayOS.
+        // ✅ QUAN TRỌNG: ưu tiên PAID khi paidAmount > 0, kể cả khi status là EXPIRED/CANCELLED
+        // (PayOS đôi khi trả EXPIRED nhưng vẫn ghi nhận tiền trong cùng session).
+        // Tính amount đang chờ để so sánh.
+        decimal expectedAmount = payment.Amount;
+        if (string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase)
+            || (info.PaidAmount > 0 && info.PaidAmount >= expectedAmount))
+        {
+            if (!string.Equals(info.Status, "PAID", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "Reconcile: PayOS status={Status} nhung paidAmount={Amount} cho don {OrderCode}. " +
+                    "Xu ly nhu PAID.",
+                    info.Status, info.PaidAmount, order.OrderCode);
+            }
 
-        return result.Success;
+            var result = await HandleWebhookSuccessAsync(
+                order.OrderCode, info.Id, info.PaidAmount);
+            if (!result.Success)
+            {
+                _logger.LogError(
+                    "Reconcile: HandleWebhookSuccess that bai cho don {OrderCode}: {Message}",
+                    order.OrderCode, result.Message);
+            }
+        }
+        else if (string.Equals(info.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(info.Status, "EXPIRED", StringComparison.OrdinalIgnoreCase))
+        {
+            var reason = string.Equals(info.Status, "CANCELLED",
+                StringComparison.OrdinalIgnoreCase)
+                    ? "Khách huỷ thanh toán."
+                    : "Phiên thanh toán đã hết hạn.";
+
+            var result = await HandleWebhookFailedAsync(order.OrderCode, reason);
+            if (!result.Success)
+            {
+                _logger.LogError(
+                    "Reconcile: HandleWebhookFailed that bai cho don {OrderCode}: {Message}",
+                    order.OrderCode, result.Message);
+            }
+        }
+        // PENDING hoặc các status khác: giữ nguyên DB.
+
+        // Đọc lại DB để trả về status mới nhất.
+        var refreshedOrder = await _orderRepository.GetByIdAsync(orderId);
+        var refreshedPayment = await _paymentRepository.GetLatestByOrderIdAsync(orderId);
+        if (refreshedOrder == null || refreshedPayment == null)
+            return null;
+
+        return new PaymentStatusResponse
+        {
+            OrderId = refreshedOrder.Id,
+            OrderCode = refreshedOrder.OrderCode,
+            PaymentStatus = refreshedPayment.Status.ToString(),
+            OrderStatus = refreshedOrder.Status.ToString(),
+            IsPaid = refreshedPayment.Status == PaymentStatus.Paid,
+            IsExpired = refreshedPayment.Status == PaymentStatus.Expired
+                || DateTime.UtcNow > refreshedPayment.ExpiresAt,
+            ExpiresInSeconds = refreshedPayment.Status == PaymentStatus.Pending
+                ? (int)Math.Max(0,
+                    (refreshedPayment.ExpiresAt - DateTime.UtcNow).TotalSeconds)
+                : 0
+        };
     }
 
     /// <summary>

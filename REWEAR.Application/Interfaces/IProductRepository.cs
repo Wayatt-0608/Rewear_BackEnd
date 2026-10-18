@@ -65,4 +65,12 @@ public interface IProductRepository
     /// </summary>
     /// <returns>Số document được update.</returns>
     Task<long> CommitStockAsync(string productId, int quantity);
+
+    /// <summary>
+    /// Kiểm tra xem URL ảnh có đang được sử dụng bởi sản phẩm khác không.
+    /// </summary>
+    /// <param name="imageUrl">URL ảnh cần kiểm tra.</param>
+    /// <param name="excludeProductId">ProductId cần loại trừ (thường là product hiện tại đang update).</param>
+    /// <returns>True nếu URL đang được sử dụng bởi sản phẩm khác.</returns>
+    Task<bool> IsImageUrlInUseByOtherProductAsync(string imageUrl, string? excludeProductId = null);
 }

@@ -15,15 +15,18 @@ public class ProductService : IProductService
     private readonly IProductRepository _productRepository;
     private readonly IBrandRepository _brandRepository;
     private readonly ICategoryRepository _categoryRepository;
+    private readonly ISourcingRepository _sourcingRepository;
 
     public ProductService(
         IProductRepository productRepository,
         IBrandRepository brandRepository,
-        ICategoryRepository categoryRepository)
+        ICategoryRepository categoryRepository,
+        ISourcingRepository sourcingRepository)
     {
         _productRepository = productRepository;
         _brandRepository = brandRepository;
         _categoryRepository = categoryRepository;
+        _sourcingRepository = sourcingRepository;
     }
 
     /// <summary>
@@ -343,6 +346,249 @@ public class ProductService : IProductService
         await _productRepository.UpdateAsync(product);
 
         return await MapToResponse(product);
+    }
+
+    /// <summary>
+    /// Cập nhật sản phẩm với xử lý ảnh nâng cao.
+    /// </summary>
+    /// <remarks>
+    /// QUY TẮC XỬ LÝ ẢNH:
+    /// - Images == null && KeepImageUrls == null → Giữ nguyên ảnh cũ
+    /// - Images == null && KeepImageUrls != null → Giữ chỉ các ảnh trong KeepImageUrls
+    /// - Images != null → Upload ảnh mới, kết hợp với KeepImageUrls
+    /// - ClearAllImages = true → Xóa tất cả ảnh cũ
+    /// </remarks>
+    public async Task<ProductResponse?> UpdateWithImagesAsync(
+        string id,
+        UpdateProductRequest request,
+        List<string> newImageUrls,
+        List<string>? keepImageUrls,
+        bool clearAllImages)
+    {
+        // Validate MongoDB ObjectId
+        if (!ObjectId.TryParse(id, out _))
+        {
+            return null;
+        }
+
+        // Tìm product hiện tại
+        var product = await _productRepository.GetByIdAsync(id);
+        if (product == null)
+        {
+            return null;
+        }
+
+        // ===== VALIDATION =====
+        // Title validation
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            throw new ArgumentException("Tiêu đề sản phẩm không được để trống.");
+        }
+
+        string trimmedTitle = request.Title.Trim();
+
+        if (string.IsNullOrWhiteSpace(trimmedTitle))
+        {
+            throw new ArgumentException("Tiêu đề sản phẩm không được chỉ chứa khoảng trắng.");
+        }
+
+        // Price validation
+        if (request.Price <= 0)
+        {
+            throw new ArgumentException("Giá sản phẩm phải lớn hơn 0.");
+        }
+
+        // Stock validation
+        if (request.StockQuantity < 1)
+        {
+            throw new ArgumentException("Số lượng tồn kho phải lớn hơn 0.");
+        }
+
+        // Brand validation
+        if (string.IsNullOrWhiteSpace(request.BrandId))
+        {
+            throw new ArgumentException("BrandId không được để trống.");
+        }
+
+        if (!ObjectId.TryParse(request.BrandId, out _))
+        {
+            throw new ArgumentException("BrandId không hợp lệ.");
+        }
+
+        var brand = await _brandRepository.GetByIdAsync(request.BrandId);
+        if (brand == null)
+        {
+            throw new InvalidOperationException($"Thương hiệu với Id '{request.BrandId}' không tồn tại.");
+        }
+
+        if (!brand.IsActive)
+        {
+            throw new InvalidOperationException($"Thương hiệu '{brand.Name}' hiện không hoạt động.");
+        }
+
+        // Category validation
+        if (string.IsNullOrWhiteSpace(request.CategoryId))
+        {
+            throw new ArgumentException("CategoryId không được để trống.");
+        }
+
+        if (!ObjectId.TryParse(request.CategoryId, out _))
+        {
+            throw new ArgumentException("CategoryId không hợp lệ.");
+        }
+
+        var category = await _categoryRepository.GetByIdAsync(request.CategoryId);
+        if (category == null)
+        {
+            throw new InvalidOperationException($"Danh mục với Id '{request.CategoryId}' không tồn tại.");
+        }
+
+        if (!category.IsActive)
+        {
+            throw new InvalidOperationException($"Danh mục '{category.Name}' hiện không hoạt động.");
+        }
+
+        // ===== XỬ LÝ ẢNH =====
+        List<string> finalImageUrls;
+
+        // Case 1: No image changes requested - keep all old images
+        if (newImageUrls.Count == 0 && keepImageUrls == null && !clearAllImages)
+        {
+            finalImageUrls = product.ImageUrls;
+        }
+        // Case 2: Clear all images (must have new images to replace)
+        else if (clearAllImages)
+        {
+            // When clearing all images, must have new images to replace
+            if (newImageUrls.Count < 1)
+            {
+                throw new ArgumentException("Phải upload ảnh mới khi xóa tất cả ảnh cũ.");
+            }
+
+            if (newImageUrls.Count > 5)
+            {
+                throw new ArgumentException("Tối đa 5 hình ảnh cho mỗi sản phẩm.");
+            }
+
+            finalImageUrls = newImageUrls;
+        }
+        // Case 3: Keep specific images only (no new images)
+        else if (newImageUrls.Count == 0 && keepImageUrls != null)
+        {
+            // Validate that keepImageUrls are valid (belong to this product)
+            var validKeepUrls = keepImageUrls
+                .Where(url => product.ImageUrls.Contains(url))
+                .ToList();
+
+            // Check total images limit (1-5)
+            if (validKeepUrls.Count < 1)
+            {
+                throw new ArgumentException("Sản phẩm phải có ít nhất 1 hình ảnh.");
+            }
+
+            if (validKeepUrls.Count > 5)
+            {
+                throw new ArgumentException("Sản phẩm tối đa 5 hình ảnh.");
+            }
+
+            finalImageUrls = validKeepUrls;
+        }
+        // Case 4: Add new images + keep some old images
+        else
+        {
+            List<string> urlsToKeep = keepImageUrls ?? new List<string>();
+
+            // Validate keepImageUrls - only allow URLs that belong to this product
+            var validKeepUrls = urlsToKeep
+                .Where(url => product.ImageUrls.Contains(url))
+                .ToList();
+
+            // Calculate total
+            int totalImages = validKeepUrls.Count + newImageUrls.Count;
+
+            if (totalImages < 1)
+            {
+                throw new ArgumentException("Sản phẩm phải có ít nhất 1 hình ảnh.");
+            }
+
+            if (totalImages > 5)
+            {
+                throw new ArgumentException($"Tổng số hình ảnh vượt quá giới hạn (tối đa 5).");
+            }
+
+            finalImageUrls = new List<string>(validKeepUrls);
+            finalImageUrls.AddRange(newImageUrls);
+        }
+
+        // ===== CẬP NHẬT =====
+        string oldTitle = product.Title;
+        product.Title = trimmedTitle;
+
+        // Regenerate slug nếu title thay đổi
+        if (oldTitle != trimmedTitle)
+        {
+            product.Slug = await GenerateUniqueSlug(trimmedTitle, id);
+        }
+
+        product.Description = request.Description?.Trim() ?? string.Empty;
+        product.BrandId = request.BrandId;
+        product.CategoryId = request.CategoryId;
+        product.Price = request.Price;
+        product.Condition = request.Condition;
+        product.Size = request.Size?.Trim();
+        product.Color = request.Color?.Trim();
+        product.ImageUrls = finalImageUrls;
+        product.StockQuantity = request.StockQuantity;
+        // KHÔNG update Status và IsActive ở đây
+        product.UpdatedAt = DateTime.UtcNow;
+
+        await _productRepository.UpdateAsync(product);
+
+        // Return list of old image URLs that are no longer used (for cleanup by caller)
+        return await MapToResponse(product);
+    }
+
+    /// <summary>
+    /// Kiểm tra ảnh cũ có cần xóa không.
+    /// Chỉ xóa nếu ảnh không còn được sử dụng bởi product khác hoặc sourcing nào.
+    /// </summary>
+    public async Task<List<string>> GetUnusedImagesToDeleteAsync(string productId, List<string> currentImageUrls)
+    {
+        var product = await _productRepository.GetByIdAsync(productId);
+        if (product == null)
+        {
+            return new List<string>();
+        }
+
+        var unusedImages = new List<string>();
+
+        foreach (var oldUrl in product.ImageUrls)
+        {
+            // Skip if URL is still in use
+            if (currentImageUrls.Contains(oldUrl))
+            {
+                continue;
+            }
+
+            // Check if used by other products
+            bool usedByOtherProduct = await _productRepository.IsImageUrlInUseByOtherProductAsync(oldUrl, productId);
+            if (usedByOtherProduct)
+            {
+                continue;
+            }
+
+            // Check if used by any sourcing request
+            bool usedBySourcing = await _sourcingRepository.IsImageUrlInUseAsync(oldUrl);
+            if (usedBySourcing)
+            {
+                continue;
+            }
+
+            // This image is no longer used - add to delete list
+            unusedImages.Add(oldUrl);
+        }
+
+        return unusedImages;
     }
 
     /// <summary>

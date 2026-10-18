@@ -9,6 +9,7 @@ namespace REWEAR.Domain.Entities;
 /// Tách khỏi Order vì vận chuyển có vòng đời riêng (chuẩn bị giao, đang chuyển,
 /// giao xong) và cần tra cứu độc lập cho dashboard shipper.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class Shipping
 {
     /// <summary>Khóa chính.</summary>
@@ -64,6 +65,36 @@ public class Shipping
     /// <summary>Ghi chú vận chuyển (vd: lý do giao thất bại).</summary>
     [BsonElement("note")]
     public string? Note { get; set; }
+
+    // ====== PHÂN BỔ SHIPPER (Task Shipper) ======
+
+    /// <summary>
+    /// Id của shipper được phân bổ đơn này. Null nếu đơn chưa được giao cho shipper cụ thể.
+    /// </summary>
+    [BsonElement("shipperId")]
+    public string? ShipperId { get; set; }
+
+    /// <summary>
+    /// Tên shipper tại thời điểm phân bổ (snapshot). Khi shipper đổi tên trong hệ thống,
+    /// các bản ghi vận chuyển cũ vẫn hiển thị đúng tên lúc họ nhận đơn.
+    /// </summary>
+    [BsonElement("shipperName")]
+    public string? ShipperName { get; set; }
+
+    /// <summary>
+    /// Số lần shipper đã giao thất bại cho đơn này. Sau khi đạt ngưỡng (vd: 3 lần),
+    /// shipper trả hàng về kho và admin quyết định Reship hoặc hủy vĩnh viễn.
+    /// </summary>
+    [BsonElement("attemptCount")]
+    public int AttemptCount { get; set; } = 0;
+
+    /// <summary>Lý do thất bại của lần giao gần nhất (vd: "Khách không nghe máy").</summary>
+    [BsonElement("lastFailureReason")]
+    public string? LastFailureReason { get; set; }
+
+    /// <summary>Thời điểm thất bại gần nhất.</summary>
+    [BsonElement("lastFailedAt")]
+    public DateTime? LastFailedAt { get; set; }
 
     /// <summary>Thời điểm tạo.</summary>
     [BsonElement("createdAt")]

@@ -192,40 +192,28 @@ public class ProductRepository : IProductRepository
 
     /// <summary>
     /// Hoàn tất bán N món (gọi khi đơn chuyển Confirmed/Delivered - Task 7).
-    /// Tồn kho đã bị trừ lúc Reserve nên bước này chỉ chốt lại trạng thái:
-    /// hết tồn thì Sold (không ai mua được nữa), còn hàng thì Available
-    /// (các món chưa bán của cùng listing vẫn mua được).
+    /// Tồn kho đã bị trừ lúc Reserve nên bước này chỉ chốt lại trạng thái.
+    /// Theo Option A: chuyển Product sang Sold ngay khi thanh toán thành công,
+    /// không phụ thuộc vào StockQuantity (mỗi listing là 1 sản phẩm độc lập).
     /// </summary>
     public async Task<long> CommitStockAsync(string productId, int quantity)
     {
         if (quantity < 1) return 0;
 
-        // Hết tồn -> Sold. Điều kiện Status = Reserved để không ghi đè
-        // trạng thái của một giao dịch khác đang xử lý.
+        // ✅ OPTION A: Set Sold ngay khi thanh toán thành công.
+        // Điều kiện Status = Reserved để không ghi đè trạng thái của
+        // một giao dịch khác đang xử lý.
         var soldResult = await _products.UpdateOneAsync(
             Builders<Product>.Filter.And(
                 Builders<Product>.Filter.Eq(x => x.Id, productId),
-                Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Reserved),
-                Builders<Product>.Filter.Lte(x => x.StockQuantity, 0)
+                Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Reserved)
             ),
             Builders<Product>.Update
                 .Set(x => x.Status, ProductStatus.Sold)
                 .Set(x => x.UpdatedAt, DateTime.UtcNow)
         );
 
-        // Còn tồn -> Available (listing nhiều món vẫn bán tiếp được).
-        var availableResult = await _products.UpdateOneAsync(
-            Builders<Product>.Filter.And(
-                Builders<Product>.Filter.Eq(x => x.Id, productId),
-                Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Reserved),
-                Builders<Product>.Filter.Gt(x => x.StockQuantity, 0)
-            ),
-            Builders<Product>.Update
-                .Set(x => x.Status, ProductStatus.Available)
-                .Set(x => x.UpdatedAt, DateTime.UtcNow)
-        );
-
-        return soldResult.ModifiedCount + availableResult.ModifiedCount;
+        return soldResult.ModifiedCount;
     }
 
     /// <summary>
@@ -235,5 +223,27 @@ public class ProductRepository : IProductRepository
     {
         // Escape special regex characters: . $ ^ { [ ( | ) * + ? \
         return System.Text.RegularExpressions.Regex.Escape(input);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsImageUrlInUseByOtherProductAsync(string imageUrl, string? excludeProductId = null)
+    {
+        // Build filter to find products that have this image URL
+        var filter = Builders<Product>.Filter.ElemMatch(
+            x => x.ImageUrls,
+            url => url == imageUrl);
+
+        // Exclude the current product if specified
+        if (!string.IsNullOrEmpty(excludeProductId))
+        {
+            filter = Builders<Product>.Filter.And(
+                filter,
+                Builders<Product>.Filter.Ne(x => x.Id, excludeProductId)
+            );
+        }
+
+        // Count products using this URL (excluding the current one)
+        var count = await _products.CountDocumentsAsync(filter);
+        return count > 0;
     }
 }

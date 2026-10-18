@@ -12,5 +12,8 @@ public enum OrderStatusChangedBy
     Staff = 1,
 
     /// <summary>Hệ thống tự động (webhook thanh toán, quét hạn phiên thanh toán).</summary>
-    System = 2
+    System = 2,
+
+    /// <summary>Shipper cập nhật trạng thái giao hàng (nhận đơn, đang giao, giao xong/thất bại).</summary>
+    Shipper = 3
 }

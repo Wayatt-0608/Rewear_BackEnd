@@ -41,6 +41,16 @@ var jwtSecret = builder.Configuration.GetSection("JwtSettings:SecretKey").Value
 var jwtIssuer = builder.Configuration.GetSection("JwtSettings:Issuer").Value ?? "RewearAPI";
 var jwtAudience = builder.Configuration.GetSection("JwtSettings:Audience").Value ?? "RewearApp";
 
+// Đăng ký JwtSettings vào DI để AuthService (Application layer) sử dụng
+var jwtSettings = new REWEAR.Application.DTOs.JwtSettings
+{
+    SecretKey = jwtSecret,
+    Issuer = jwtIssuer,
+    Audience = jwtAudience,
+    ExpiryHours = 24
+};
+builder.Services.AddSingleton(jwtSettings);
+
 // Đăng ký MongoDbContext vào Dependency Injection
 builder.Services.AddSingleton(mongoSettings);
 builder.Services.AddSingleton<MongoDbContext>();
@@ -64,7 +74,9 @@ var payOsSettings = new PayOsSettings
     ClientId = builder.Configuration.GetSection("PayOs:ClientId").Value ?? "",
     ApiKey = builder.Configuration.GetSection("PayOs:ApiKey").Value ?? "",
     ChecksumKey = builder.Configuration.GetSection("PayOs:ChecksumKey").Value ?? "",
-    BaseUrl = builder.Configuration.GetSection("PayOs:BaseUrl").Value ?? "https://api-beta.payos.vn",
+    // Mặc định dùng PRODUCTION URL (api-merchant.payos.vn) - endpoint mới chính thức của PayOS.
+    // Sandbox (api-beta.payos.vn) hay bị DNS issue.
+    BaseUrl = builder.Configuration.GetSection("PayOs:BaseUrl").Value ?? "https://api-merchant.payos.vn",
     AppBaseUrl = builder.Configuration.GetSection("PayOs:AppBaseUrl").Value ?? "",
     ExpirationMinutes = builder.Configuration.GetValue("PayOs:ExpirationMinutes", 15)
 };
@@ -98,13 +110,101 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEA
 // ====== PAYMENT (Task 8) ======
 // HttpClient cho PayOsService: dùng AddHttpClient để có connection pooling
 // và cơ chế tái tạo kết nối tự động khi DNS/đường dây đổi.
+//
+// PayOS dùng Cloudflare, và api-merchant.payos.vn có thể không resolve được DNS
+    // (hoặc bị chặn bởi ISP). Dùng SocketsHttpHandler với ConnectCallback
+    // để override DNS resolution: ép api-merchant.payos.vn → 104.21.40.122 (IP Cloudflare thật).
+    // Cách này KHÔNG cần sửa hosts file.
 builder.Services.AddSingleton<REWEAR.Application.Interfaces.IPaymentGatewayConfig,
     REWEAR.Infrastructure.Services.PaymentGatewayConfig>();
-builder.Services.AddHttpClient<REWEAR.Application.Interfaces.IPayOsService,
-    REWEAR.Infrastructure.Services.PayOsService>(client =>
+
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IPayOsService>(sp =>
 {
-    // PayOS yêu cầu timeout hợp lý: quá dài sẽ giữ nguyên request của checkout.
-    client.Timeout = TimeSpan.FromSeconds(30);
+    var settings = sp.GetRequiredService<PayOsSettings>();
+    var logger = sp.GetRequiredService<ILogger<REWEAR.Infrastructure.Services.PayOsService>>();
+
+    // SocketsHttpHandler cho phép override DNS resolution ở mức kết nối TCP.
+    var handler = new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+        AllowAutoRedirect = false,
+        ConnectCallback = async (context, cancellationToken) =>
+        {
+            // Nếu đang kết nối đến api.payos.vn HOẶC api-beta.payos.vn
+            // → dùng IP Cloudflare thật của PayOS.
+            //
+            // Lý do: cả 2 domain có thể không resolve được DNS trên môi trường
+            // Render Singapore (bị ISP/VN chặn DNS, hoặc sandbox geo-block).
+            // Cloudflare vẫn nhận request nếu kết nối thẳng đến IP + đúng Host header.
+            //
+            // Cloudflare sở hữu dải IP rất lớn. Thử vài IP phổ biến:
+            // 104.21.0.0/16 và 172.67.0.0/16.
+            var host = context.DnsEndPoint.Host;
+            if (host.Equals("api-merchant.payos.vn", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("api.payos.vn", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("api-beta.payos.vn", StringComparison.OrdinalIgnoreCase))
+            {
+                // Thử các IP Cloudflare cho PayOS (có thể xoay vòng).
+                string[] cloudflareIPs =
+                {
+                    "104.21.40.122",  // IP cũ - vẫn hoạt động
+                    "104.21.65.122",  // IP backup 1
+                    "172.67.155.122", // IP backup 2
+                };
+
+                System.Net.Sockets.Socket? socket = null;
+                System.Net.Sockets.SocketException? lastError = null;
+
+                foreach (var ip in cloudflareIPs)
+                {
+                    try
+                    {
+                        socket = new System.Net.Sockets.Socket(
+                            System.Net.Sockets.AddressFamily.InterNetwork,
+                            System.Net.Sockets.SocketType.Stream,
+                            System.Net.Sockets.ProtocolType.Tcp);
+                        await socket.ConnectAsync(
+                            new System.Net.IPEndPoint(
+                                System.Net.IPAddress.Parse(ip), 443),
+                            cancellationToken);
+                        lastError = null;
+                        break;  // Kết nối thành công, thoát vòng lặp
+                    }
+                    catch (System.Net.Sockets.SocketException ex)
+                    {
+                        lastError = ex;
+                        socket?.Dispose();
+                        socket = null;
+                        // Thử IP tiếp theo
+                    }
+                }
+
+                if (socket == null)
+                {
+                    throw lastError ?? new System.Net.Sockets.SocketException(
+                        (int)System.Net.Sockets.SocketError.HostNotFound);
+                }
+
+                // SocketsHttpHandler sẽ tự động bắt tay TLS trên stream này.
+                return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+            }
+
+            // Mọi host khác: kết nối bình thường (DNS resolution mặc định).
+            var defaultSocket = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.InterNetwork,
+                System.Net.Sockets.SocketType.Stream,
+                System.Net.Sockets.ProtocolType.Tcp);
+            await defaultSocket.ConnectAsync(context.DnsEndPoint, cancellationToken);
+            return new System.Net.Sockets.NetworkStream(defaultSocket, ownsSocket: true);
+        }
+    };
+
+    var httpClient = new HttpClient(handler)
+    {
+        Timeout = TimeSpan.FromSeconds(30)
+    };
+
+    return new REWEAR.Infrastructure.Services.PayOsService(httpClient, settings, logger);
 });
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IPaymentService,
     REWEAR.Application.Services.PaymentService>();
@@ -162,6 +262,31 @@ builder.Services.AddAuthorization(options =>
 // ====== END JWT AUTHENTICATION ======
 
 builder.Services.AddControllers();
+
+// ============================================
+// CORS (Task 11) - cho phép FE local (Vite/React/Angular)
+// gọi API từ Render production trong khi chưa deploy FE.
+// ============================================
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:5173",   // Vite (React/Vue)
+                "http://localhost:3000",   // CRA / Next.js dev
+                "http://localhost:4200",   // Angular dev
+                "http://localhost:8080",   // Vue CLI / general
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3000",
+                "https://rewear-wyb0.onrender.com", // Swagger + Production FE
+                "https://rewear-frontend.vercel.app", // Sẵn sàng cho FE production
+                "https://rewear-frontend.netlify.app"
+              )
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
 
 // Cấu hình giới hạn upload (5MB)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
@@ -223,16 +348,80 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Mount Swagger cho CA Development va Production de co the test truc tiep tren fly.io.
+// Neu muon gioi han theo IP hoac role, them middleware o day.
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Rewear API v1");
+    // RoutePrefix = "" => Swagger UI o root "/", nguoi dung chi can vao rewear.fly.dev
+    // la thay ngay API docs khong can go them /swagger.
+    c.RoutePrefix = string.Empty;
+});
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    // Development co them developer-friendly middleware (chi tiet loi, ...)
+    // Swagger da duoc mount o tren roi.
 }
+
+// CORS phải đặt TRƯỚC UseAuthentication để preflight OPTIONS không bị middleware auth chặn.
+app.UseCors("AllowFrontend");
 
 app.UseCors("RewearFrontend");
 app.UseAuthentication();  // JWT Authentication
 app.UseRoleChecking();   // Role checking (log + chặn admin API cho non-Admin)
 app.UseAuthorization();  // Authorization Policies
 app.MapControllers();
+
+// Health check endpoint cho Fly.io proxy (khong yeu cau JWT).
+app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }))
+   .AllowAnonymous();
+
+// ========================================
+// DEBUG ENDPOINT - JWT (tạm thời, chỉ để debug)
+// ========================================
+app.MapGet("/debug-jwt", (HttpContext ctx) =>
+{
+    var authHeader = ctx.Request.Headers["Authorization"].ToString();
+    var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        ? authHeader.Substring(7).Trim()
+        : authHeader.Trim();
+
+    string tokenInfo = "no-token-provided";
+    if (!string.IsNullOrEmpty(token))
+    {
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        try
+        {
+            var jwt = handler.ReadJwtToken(token);
+            tokenInfo = $"valid-jwt: sub={jwt.Subject}, iat={new DateTimeOffset(jwt.IssuedAt):yyyy-MM-dd HH:mm:ss}, exp={new DateTimeOffset(jwt.ValidTo):yyyy-MM-dd HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            tokenInfo = $"invalid-jwt: {ex.Message}";
+        }
+    }
+
+    // Hash MD5 của SecretKey server để so sánh (không lộ key thật)
+    using var md5 = System.Security.Cryptography.MD5.Create();
+    var secretHash = BitConverter.ToString(md5.ComputeHash(Encoding.UTF8.GetBytes(jwtSecret)))
+        .Replace("-", "").ToLowerInvariant();
+
+    // Hex encoding để thấy ký tự ẩn (null, space, etc.)
+    var secretHex = BitConverter.ToString(Encoding.UTF8.GetBytes(jwtSecret))
+        .Replace("-", " ").ToLowerInvariant();
+
+    return Results.Ok(new
+    {
+        serverSecretHash = secretHash,
+        serverSecretLength = jwtSecret.Length,
+        serverSecretStart = jwtSecret.Substring(0, Math.Min(15, jwtSecret.Length)) + "...",
+        serverSecretHex = secretHex,  // ← MỚI: hiển thị hex để thấy ký tự ẩn
+        jwtIssuer = jwtIssuer,
+        jwtAudience = jwtAudience,
+        tokenInfo = tokenInfo
+    });
+}).AllowAnonymous();
 
 app.Run();

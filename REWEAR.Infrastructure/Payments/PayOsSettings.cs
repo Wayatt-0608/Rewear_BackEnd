@@ -20,10 +20,10 @@ public class PayOsSettings
     public string ChecksumKey { get; set; } = string.Empty;
 
     /// <summary>
-    /// Base URL của PayOS. Sandbox: https://api-beta.payos.vn (mặc định).
-    /// Production: https://api.payos.vn
+    /// Base URL của PayOS. Production: https://api-merchant.payos.vn (endpoint mới từ PayOS).
+    /// Cũ: api.payos.vn (đã lỗi thời, không dùng được).
     /// </summary>
-    public string BaseUrl { get; set; } = "https://api-beta.payos.vn";
+    public string BaseUrl { get; set; } = "https://api-merchant.payos.vn";
 
     /// <summary>
     /// Base URL của chính ứng dụng, dùng để dựng returnUrl / cancelUrl gửi cho PayOS.

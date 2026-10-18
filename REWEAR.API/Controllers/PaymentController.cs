@@ -1,6 +1,4 @@
 using System.Security.Claims;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using REWEAR.Application.DTOs;
@@ -15,20 +13,17 @@ namespace REWEAR.API.Controllers;
 public class PaymentController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
-    private readonly IPayOsService _payOsService;
     private readonly IOrderService _orderService;
     private readonly IPaymentGatewayConfig _gatewayConfig;
     private readonly PayOsSettings _payOsSettings;
 
     public PaymentController(
         IPaymentService paymentService,
-        IPayOsService payOsService,
         IOrderService orderService,
         IPaymentGatewayConfig gatewayConfig,
         PayOsSettings payOsSettings)
     {
         _paymentService = paymentService;
-        _payOsService = payOsService;
         _orderService = orderService;
         _gatewayConfig = gatewayConfig;
         _payOsSettings = payOsSettings;
@@ -48,7 +43,7 @@ public class PaymentController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Trả về checkoutUrl để frontend chuyển khách hàng tới trang thanh toán,
-    /// kèm qrCode và thời hạn 15 phút. Nếu hết hạn, sản phẩm tự động trở lại cửa hàng.
+    /// kèm qrCode và thời hạn 5 phút (DEV/TEST). Nếu hết hạn, sản phẩm tự động trở lại cửa hàng.
     /// </remarks>
     /// <param name="orderId">Id của đơn hàng cần tạo phiên thanh toán.</param>
     [HttpPost("{orderId}/session")]
@@ -88,11 +83,12 @@ public class PaymentController : ControllerBase
     }
 
     /// <summary>
-    /// Tra cứu trạng thái thanh toán của đơn.
+    /// Tra cứu trạng thái thanh toán của đơn. Frontend gọi polling mỗi 3-5 giây.
     /// </summary>
     /// <remarks>
-    /// Frontend gọi endpoint này sau khi PayOS chuyển khách hàng quay lại.
-    /// Đây là đường xác nhận thứ 2 bên cạnh webhook, xử lý được trường hợp webhook bị mất.
+    /// Thay cho webhook: backend tự hỏi PayOS server trực tiếp. Nếu đơn đang
+    /// Pending thì gọi PayOS lấy status thật (PAID/CANCELLED/EXPIRED) và cập nhật
+    /// DB luôn. Idempotent: gọi nhiều lần cũng chỉ chốt đơn 1 lần.
     /// </remarks>
     /// <param name="orderId">Id của đơn hàng cần tra cứu trạng thái thanh toán.</param>
     [HttpGet("{orderId}/status")]
@@ -110,6 +106,44 @@ public class PaymentController : ControllerBase
             return NotFound(new ApiResponse { Success = false, Message = "Không tìm thấy đơn hàng." });
 
         return Ok(new ApiResponse { Success = true, Data = status });
+    }
+
+    /// <summary>
+    /// Đối soát chủ động với PayOS: gọi thẳng PayOS server để xác minh trạng thái
+    /// thanh toán và cập nhật DB. Thay thế webhook khi không dùng Cloudflare.
+    /// </summary>
+    /// <remarks>
+    /// Dùng khi:
+    /// - Khách thanh toán xong nhưng polling chưa kịp cập nhật.
+    /// - Webhook bị mất và cần đồng bộ ngay.
+    /// - Muốn verify trạng thái thanh toán thật từ PayOS server.
+    ///
+    /// Idempotent: gọi nhiều lần cũng không chốt đơn 2 lần.
+    /// </remarks>
+    [HttpPost("{orderId}/reconcile")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse>> Reconcile(string orderId)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(new ApiResponse { Success = false, Message = "Không xác định được người dùng." });
+
+        // Chỉ chủ đơn hoặc admin mới được đối soát.
+        var ownedOrder = await _orderService.GetOrderDetailAsync(userId, orderId);
+        if (ownedOrder == null)
+            return NotFound(new ApiResponse { Success = false, Message = "Không tìm thấy đơn hàng." });
+
+        var status = await _paymentService.ReconcileAsync(orderId);
+        if (status == null)
+            return NotFound(new ApiResponse { Success = false, Message = "Không thể đối soát đơn hàng này." });
+
+        return Ok(new ApiResponse
+        {
+            Success = true,
+            Message = "Đã đối soát với PayOS. Trạng thái hiện tại đã được cập nhật.",
+            Data = status
+        });
     }
 
     /// <summary>
@@ -132,102 +166,4 @@ public class PaymentController : ControllerBase
 
         return Ok(new ApiResponse { Success = true, Data = history });
     }
-
-    // ============================================
-    // WEBHOOK PAYOS
-    // ============================================
-
-    /// <summary>
-    /// Webhook nhận thông báo giao dịch từ PayOS.
-    /// </summary>
-    /// <remarks>
-    /// Đặt ngoài [Authorize] vì PayOS gọi không có token JWT.
-    /// Bắt buộc xác minh chữ ký trước khi xử lý bất kỳ dữ liệu nào.
-    /// </remarks>
-    [HttpPost("webhook")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> PayOsWebhook()
-    {
-        // Đọc raw body để xác minh chữ ký. Verify trên JSON đã deserialize
-        // có thể sai vì thứ tự key / khoảng trắng bị đổi.
-        using var reader = new StreamReader(Request.Body);
-        string rawBody = await reader.ReadToEndAsync();
-
-        string signature = Request.Headers["x-signature"].ToString();
-
-        // Chữ ký sai -> từ chối, KHÔNG cập nhật dữ liệu.
-        if (!_payOsService.VerifyWebhookSignature(rawBody, signature))
-        {
-            return Ok(new { success = false, message = "Invalid signature" });
-        }
-
-        PayOsWebhookPayload? payload;
-        try
-        {
-            payload = JsonSerializer.Deserialize<PayOsWebhookPayload>(rawBody);
-        }
-        catch (JsonException)
-        {
-            return BadRequest(new { success = false, message = "Invalid payload" });
-        }
-
-        if (payload == null || string.IsNullOrWhiteSpace(payload.Data?.OrderCode))
-            return BadRequest(new { success = false, message = "Missing orderCode" });
-
-        var data = payload.Data;
-
-        // PayOS dùng mã "00" ở tầng ngoài cùng để báo thanh toán thành công.
-        if (payload.Code == "00")
-        {
-            var result = await _paymentService.HandleWebhookSuccessAsync(
-                data.OrderCode,
-                data.Id ?? string.Empty,
-                data.Amount / 100m);
-
-            return Ok(new { success = result.Success, message = result.Message });
-        }
-
-        var failResult = await _paymentService.HandleWebhookFailedAsync(
-            data.OrderCode, data.CancelReason);
-
-        return Ok(new { success = failResult.Success, message = failResult.Message });
-    }
-}
-
-/// <summary>
-/// Payload webhook mà PayOS gửi lên.
-/// </summary>
-public class PayOsWebhookPayload
-{
-    [JsonPropertyName("code")]
-    public string Code { get; set; } = string.Empty;
-
-    [JsonPropertyName("message")]
-    public string Message { get; set; } = string.Empty;
-
-    [JsonPropertyName("data")]
-    public PayOsWebhookData? Data { get; set; }
-}
-
-/// <summary>
-/// Phần data của webhook PayOS.
-/// </summary>
-public class PayOsWebhookData
-{
-    [JsonPropertyName("id")]
-    public string? Id { get; set; }
-
-    [JsonPropertyName("orderCode")]
-    public string OrderCode { get; set; } = string.Empty;
-
-    /// <summary>Số tiền tính bằng đồng (PayOS gửi số nguyên).</summary>
-    [JsonPropertyName("amount")]
-    public long Amount { get; set; }
-
-    [JsonPropertyName("status")]
-    public string? Status { get; set; }
-
-    [JsonPropertyName("cancelReason")]
-    public string? CancelReason { get; set; }
 }

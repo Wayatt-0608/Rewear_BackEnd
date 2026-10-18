@@ -3,6 +3,11 @@ namespace REWEAR.Application.Interfaces;
 /// <summary>
 /// Interface làm việc với cổng thanh toán PayOS (Task 8).
 /// </summary>
+/// <remarks>
+/// Hệ thống dùng polling thay cho webhook: frontend gọi GET /api/payments/{id}/status,
+/// backend chủ động gọi PayOS qua <see cref="GetTransactionAsync"/> để hỏi trạng thái.
+/// Không cần xác minh chữ ký vì không nhận callback từ PayOS nữa.
+/// </remarks>
 public interface IPayOsService
 {
     /// <summary>
@@ -20,16 +25,8 @@ public interface IPayOsService
         DateTime expiredAt);
 
     /// <summary>
-    /// Xác minh chữ ký webhook do PayOS gửi kèm (header x-signature).
-    /// Bắt buộc gọi trước khi xử lý bất kỳ dữ liệu webhook nào.
-    /// </summary>
-    /// <param name="rawRequestBody">Raw body của request, chưa deserialize.</param>
-    /// <param name="signature">Giá trị header x-signature.</param>
-    bool VerifyWebhookSignature(string rawRequestBody, string? signature);
-
-    /// <summary>
-    /// Tra cứu chi tiết giao dịch từ PayOS. Dùng làm đường đối soát chủ động
-    /// khi webhook bị mất (frontend hỏi trạng thái mà hệ thống vẫn báo chờ).
+    /// Tra cứu chi tiết giao dịch từ PayOS. Đây là API backend dùng để polling
+    /// trạng thái thay cho webhook: PAID / CANCELLED / EXPIRED / PENDING.
     /// </summary>
     Task<PayOsTransactionInfo?> GetTransactionAsync(string transactionId);
 
@@ -39,6 +36,15 @@ public interface IPayOsService
     /// <param name="transactionId">Id giao dịch cần hoàn.</param>
     /// <param name="reason">Lý do hoàn (hiển thị trên lịch sử giao dịch).</param>
     Task<PayOsRefundResult> RefundAsync(string transactionId, string? reason);
+
+    /// <summary>
+    /// Đăng ký URL webhook với PayOS. PayOS sẽ test URL bằng cách gọi POST
+    /// vào đó; nếu endpoint trả response đúng format, URL sẽ được lưu lại và
+    /// PayOS sẽ gọi mỗi khi có giao dịch thay đổi trạng thái.
+    /// </summary>
+    /// <param name="webhookUrl">URL đầy đủ (https://...) của webhook endpoint.</param>
+    /// <returns>True nếu PayOS chấp nhận URL.</returns>
+    Task<bool> ConfirmWebhookAsync(string webhookUrl);
 }
 
 /// <summary>
@@ -60,7 +66,7 @@ public class PayOsCreateResult
 }
 
 /// <summary>
-/// Chi tiết giao dịch lấy từ PayOS (chỉ dùng nội bộ để đối soát).
+/// Chi tiết giao dịch lấy từ PayOS (dùng cho polling trạng thái).
 /// </summary>
 public class PayOsTransactionInfo
 {
