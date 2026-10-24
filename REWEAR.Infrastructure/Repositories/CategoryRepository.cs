@@ -10,7 +10,7 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class CategoryRepository : ICategoryRepository
 {
-    private readonly IMongoCollection<Category> _categories;
+    private readonly TransactionalCollection<Category> _categories;
 
     public CategoryRepository(MongoDbContext context)
     {

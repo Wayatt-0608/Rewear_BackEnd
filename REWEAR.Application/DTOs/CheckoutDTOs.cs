@@ -11,6 +11,8 @@ namespace REWEAR.Application.DTOs;
 /// </summary>
 public class CheckoutRequest
 {
+    public string? IdempotencyKey { get; set; }
+
     /// <summary>
     /// Id địa chỉ giao hàng đã lưu trong hồ sơ (Task 2: POST /api/profile/addresses).
     /// </summary>

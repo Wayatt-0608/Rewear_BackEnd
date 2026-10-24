@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using REWEAR.Application.DTOs;
 using REWEAR.Application.Interfaces;
@@ -45,6 +46,7 @@ public class CategoriesController : ControllerBase
     /// Tạo danh mục mới
     /// </summary>
     [HttpPost]
+    [Authorize(Policy = "StaffOrAdmin")]
     public async Task<IActionResult> Create([FromBody] CreateCategoryRequest request)
     {
         try
@@ -66,6 +68,7 @@ public class CategoriesController : ControllerBase
     /// Cập nhật thông tin danh mục
     /// </summary>
     [HttpPut("{id}")]
+    [Authorize(Policy = "StaffOrAdmin")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateCategoryRequest request)
     {
         try
@@ -93,6 +96,7 @@ public class CategoriesController : ControllerBase
     /// Xóa danh mục (soft delete)
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Policy = "StaffOrAdmin")]
     public async Task<IActionResult> Delete(string id)
     {
         var result = await _categoryService.DeleteAsync(id);
@@ -109,6 +113,7 @@ public class CategoriesController : ControllerBase
     /// Khôi phục danh mục đã bị xóa
     /// </summary>
     [HttpPatch("{id}/restore")]
+    [Authorize(Policy = "StaffOrAdmin")]
     public async Task<IActionResult> Restore(string id)
     {
         var category = await _categoryService.RestoreAsync(id);

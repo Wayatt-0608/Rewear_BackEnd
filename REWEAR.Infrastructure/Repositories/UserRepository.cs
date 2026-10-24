@@ -10,7 +10,7 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class UserRepository : IUserRepository
 {
-    private readonly IMongoCollection<User> _users;
+    private readonly TransactionalCollection<User> _users;
 
     public UserRepository(MongoDbContext context)
     {

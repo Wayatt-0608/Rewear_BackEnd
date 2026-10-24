@@ -11,6 +11,13 @@ namespace REWEAR.Domain.Entities;
 [BsonIgnoreExtraElements]
 public class SourcingRequest
 {
+    public int OfferVersion { get; set; }
+    public List<SourcingOffer> OfferHistory { get; set; } = new();
+    public decimal? AcceptedOfferPrice { get; set; }
+    public bool RequiresRevisedAcceptance { get; set; }
+    public string? InspectedBy { get; set; }
+    public DateTime? InspectedAt { get; set; }
+    public List<string> InspectionImages { get; set; } = new();
     /// <summary>
     /// Khóa chính của request.
     /// </summary>

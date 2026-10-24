@@ -11,7 +11,10 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class OrderRepository : IOrderRepository
 {
-    private readonly IMongoCollection<Order> _orders;
+    public Task<List<Order>> GetExpiredAwaitingAsync(DateTime now, int limit) => _orders
+        .Find(o => o.Status == OrderStatus.AwaitingPayment && o.ReservationExpiresAt <= now)
+        .SortBy(o => o.ReservationExpiresAt).Limit(Math.Clamp(limit, 1, 500)).ToListAsync();
+    private readonly TransactionalCollection<Order> _orders;
 
     public OrderRepository(MongoDbContext context)
     {

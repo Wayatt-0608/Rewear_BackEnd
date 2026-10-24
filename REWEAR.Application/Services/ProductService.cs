@@ -157,9 +157,9 @@ public class ProductService : IProductService
         }
 
         // Price validation
-        if (request.Price <= 0)
+        if (request.Price <= 0 || decimal.Truncate(request.Price) != request.Price)
         {
-            throw new ArgumentException("Giá sản phẩm phải lớn hơn 0.");
+            throw new ArgumentException("Giá sản phẩm phải là số nguyên VND lớn hơn 0.");
         }
 
         // Brand validation
@@ -248,6 +248,8 @@ public class ProductService : IProductService
         {
             return null;
         }
+        if (product.Status != ProductStatus.Available) throw new InvalidOperationException("Không sửa sản phẩm đang được giữ hoặc đã bán.");
+        await ValidateStockEditAsync(product, request.StockQuantity);
 
         // ===== VALIDATION =====
         
@@ -265,9 +267,9 @@ public class ProductService : IProductService
         }
 
         // Price validation
-        if (request.Price <= 0)
+        if (request.Price <= 0 || decimal.Truncate(request.Price) != request.Price)
         {
-            throw new ArgumentException("Giá sản phẩm phải lớn hơn 0.");
+            throw new ArgumentException("Giá sản phẩm phải là số nguyên VND lớn hơn 0.");
         }
 
         // Stock validation: phải >= 1. Sản phẩm hết hàng được quản lý bằng
@@ -377,6 +379,8 @@ public class ProductService : IProductService
         {
             return null;
         }
+        if (product.Status != ProductStatus.Available) throw new InvalidOperationException("Không sửa sản phẩm đang được giữ hoặc đã bán.");
+        await ValidateStockEditAsync(product, request.StockQuantity);
 
         // ===== VALIDATION =====
         // Title validation
@@ -393,9 +397,9 @@ public class ProductService : IProductService
         }
 
         // Price validation
-        if (request.Price <= 0)
+        if (request.Price <= 0 || decimal.Truncate(request.Price) != request.Price)
         {
-            throw new ArgumentException("Giá sản phẩm phải lớn hơn 0.");
+            throw new ArgumentException("Giá sản phẩm phải là số nguyên VND lớn hơn 0.");
         }
 
         // Stock validation
@@ -699,7 +703,8 @@ public class ProductService : IProductService
             throw new InvalidOperationException("Không thể cập nhật trạng thái sản phẩm không hoạt động.");
         }
 
-        // Cập nhật status
+        if (product.Status != status) throw new InvalidOperationException("Trạng thái thương mại được quản lý theo giữ hàng/thanh toán; dùng ẩn hoặc khôi phục để quản lý hiển thị.");
+        // An identical request is harmless.
         product.Status = status;
         product.UpdatedAt = DateTime.UtcNow;
 
@@ -712,6 +717,14 @@ public class ProductService : IProductService
     /// Generate unique slug từ title.
     /// Đảm bảo không trùng với slug của product khác.
     /// </summary>
+    private async Task ValidateStockEditAsync(Product product, int stock)
+    {
+        if (stock != product.StockQuantity && await _productRepository.HasActiveAllocationAsync(product.Id))
+            throw new InvalidOperationException("Sản phẩm có phân bổ đơn hàng; không điều chỉnh tồn kho qua sửa catalog.");
+        if (product.IsUnique == true && stock != 1)
+            throw new InvalidOperationException("Sản phẩm độc bản có đúng một món.");
+    }
+
     private async Task<string> GenerateUniqueSlug(string title, string? excludeProductId = null)
     {
         // Generate base slug
@@ -794,6 +807,7 @@ public class ProductService : IProductService
             ImageUrls = product.ImageUrls,
             Status = product.Status,
             IsActive = product.IsActive,
+            ProductType = product.ProductType, UpcyclingProjectId = product.UpcyclingProjectId, IsUnique = product.IsUnique ?? product.StockQuantity <= 1,
             StockQuantity = product.StockQuantity,
             CreatedAt = product.CreatedAt,
             UpdatedAt = product.UpdatedAt

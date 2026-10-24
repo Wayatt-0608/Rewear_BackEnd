@@ -100,6 +100,21 @@ public class PaymentAdminController : ControllerBase
             Data = new { processed }
         });
     }
+
+    [HttpPost("{orderId}/refund/confirm")]
+    public async Task<IActionResult> ConfirmRefund(string orderId, [FromBody] ConfirmRefundRequest request)
+    {
+        var actor = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        var result = await _paymentService.ConfirmManualRefundAsync(orderId, request.Reference, request.Amount, actor);
+        return result.Success ? Ok(result) : Conflict(result);
+    }
+}
+
+public sealed class ConfirmRefundRequest
+{
+    public string Reference { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
 }
 
 public class ConfirmWebhookRequest

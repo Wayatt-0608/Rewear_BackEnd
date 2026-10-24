@@ -11,6 +11,19 @@ namespace REWEAR.Domain.Entities;
 /// </summary>
 public class Payment
 {
+    public long GatewayOrderCode { get; set; }
+    public bool SessionCreating { get; set; }
+    public bool RequiresReconciliation { get; set; }
+    public string? ReconciliationReason { get; set; }
+    public string? RefundState { get; set; }
+    public string? RefundReference { get; set; }
+    public string? RefundConfirmedBy { get; set; }
+    public DateTime? RefundRequestedAt { get; set; }
+    public decimal? RefundedAmount { get; set; }
+    public DateTime? LastGatewayCheckedAt { get; set; }
+    public List<GatewayReceipt> Receipts { get; set; } = new();
+    public List<PaymentCashEvent> CashEvents { get; set; } = new();
+
     /// <summary>Khóa chính.</summary>
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
@@ -101,4 +114,18 @@ public class Payment
     [BsonIgnore]
     public bool IsExpiredButUnpaid =>
         Status == PaymentStatus.Pending && DateTime.UtcNow > ExpiresAt;
+}
+
+public sealed class GatewayReceipt
+{
+    public string Reference { get; set; } = "";
+    public decimal Amount { get; set; }
+    public DateTime RecordedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class PaymentCashEvent
+{
+    public decimal Amount { get; set; }
+    public DateTime? RecordedAt { get; set; }
+    public bool LegacyTimestamp { get; set; }
 }

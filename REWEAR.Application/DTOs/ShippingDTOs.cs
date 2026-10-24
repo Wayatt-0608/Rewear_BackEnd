@@ -1,4 +1,5 @@
 using REWEAR.Domain.Enums;
+using System.ComponentModel.DataAnnotations;
 
 namespace REWEAR.Application.DTOs;
 
@@ -11,6 +12,15 @@ namespace REWEAR.Application.DTOs;
 /// </summary>
 public class ShippingResponse
 {
+    public DateTime? AssignedAt { get; set; }
+    public DateTime? PickedUpAt { get; set; }
+    public string RecipientName { get; set; } = "";
+    public string RecipientPhone { get; set; } = "";
+    public string ShippingAddress { get; set; } = "";
+    public string PaymentStatus { get; set; } = "";
+    public string? DeliveryNotes { get; set; }
+    public List<DeliveryItemResponse> Items { get; set; } = new();
+    public List<DeliveryHistoryEvent> History { get; set; } = new();
     public string Id { get; set; } = string.Empty;
     public string OrderId { get; set; } = string.Empty;
     public string OrderCode { get; set; } = string.Empty;
@@ -109,21 +119,24 @@ public class UpdateShippingRequest
 /// </summary>
 public class UpdateShippingStatusRequest
 {
+    [MaxLength(40)]
+    public string? FailureCode { get; set; }
     /// <summary>
     /// Mã trạng thái vận chuyển mới theo <see cref="ShippingStatus"/>:
-    /// 0 = Pending, 1 = InTransit, 2 = Delivered, 3 = Failed, 4 = Returned.
+    /// 0 = Pending, 1 = InTransit, 2 = Delivered, 3 = Failed, 4 = Returned, 5 = PickedUp.
     /// </summary>
     public int Status { get; set; }
 
     /// <summary>Ghi chú cho mốc timeline (vd: lý do thất bại).</summary>
+    [MaxLength(1000)]
     public string? Note { get; set; }
 
     /// <summary>Mã vận đơn (nhập khi chuyển sang InTransit).</summary>
+    [MaxLength(100)]
     public string? TrackingNumber { get; set; }
 
     /// <summary>
-    /// Số lần thử giao (chỉ dùng khi status = Failed). Server sẽ tự tăng AttemptCount
-    /// lên 1 nếu không truyền hoặc dùng giá trị này làm tổng nếu muốn đồng bộ từ client.
+    /// Trường tương thích client cũ; server bỏ qua và tự tăng mỗi lần thất bại.
     /// </summary>
     public int? AttemptCount { get; set; }
 }
@@ -154,6 +167,10 @@ public class CancelPermanentRequest
 /// </summary>
 public class ShippingQueueItem
 {
+    public string RecipientName { get; set; } = "";
+    public string ShippingAddress { get; set; } = "";
+    public int TotalQuantity { get; set; }
+    public string PaymentStatus { get; set; } = "Paid";
     public string OrderId { get; set; } = string.Empty;
     public string OrderCode { get; set; } = string.Empty;
     public string BuyerId { get; set; } = string.Empty;
@@ -180,6 +197,11 @@ public class ShippingQueueResponse
 /// </summary>
 public class MyOrderItem
 {
+    public string Method { get; set; } = "";
+    public string PaymentStatus { get; set; } = "";
+    public int TotalQuantity { get; set; }
+    public DateTime? AssignedAt { get; set; }
+    public DateTime? PickedUpAt { get; set; }
     public string ShippingId { get; set; } = string.Empty;
     public string OrderId { get; set; } = string.Empty;
     public string OrderCode { get; set; } = string.Empty;
@@ -220,4 +242,20 @@ public class ShippingListResponse
     public List<ShippingResponse> Items { get; set; } = new();
     public int TotalCount { get; set; }
     public ShippingStatus? FilterStatus { get; set; }
+}
+
+public sealed class DeliveryItemResponse
+{
+    public string ProductTitle { get; set; } = "";
+    public string? ProductImageUrl { get; set; }
+    public int Quantity { get; set; }
+    public string? Size { get; set; }
+    public string? Color { get; set; }
+}
+public sealed class DeliveryHistoryEvent
+{
+    public string Code { get; set; } = "";
+    public string Label { get; set; } = "";
+    public DateTime? OccurredAt { get; set; }
+    public string? Note { get; set; }
 }

@@ -10,7 +10,7 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class BrandRepository : IBrandRepository
 {
-    private readonly IMongoCollection<Brand> _brands;
+    private readonly TransactionalCollection<Brand> _brands;
 
     public BrandRepository(MongoDbContext context)
     {

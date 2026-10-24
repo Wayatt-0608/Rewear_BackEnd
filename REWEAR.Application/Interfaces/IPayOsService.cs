@@ -4,9 +4,8 @@ namespace REWEAR.Application.Interfaces;
 /// Interface làm việc với cổng thanh toán PayOS (Task 8).
 /// </summary>
 /// <remarks>
-/// Hệ thống dùng polling thay cho webhook: frontend gọi GET /api/payments/{id}/status,
-/// backend chủ động gọi PayOS qua <see cref="GetTransactionAsync"/> để hỏi trạng thái.
-/// Không cần xác minh chữ ký vì không nhận callback từ PayOS nữa.
+/// Backend queries authoritative gateway state via <see cref="GetTransactionAsync"/>.
+/// Signed webhook intake is handled separately by PaymentWebhookController.
 /// </remarks>
 public interface IPayOsService
 {
@@ -22,16 +21,16 @@ public interface IPayOsService
     Task<PayOsCreateResult?> CreatePaymentRequestAsync(
         string orderCode, decimal amount,
         string returnUrl, string cancelUrl,
-        DateTime expiredAt);
+        DateTime expiredAt, long? numericOrderCode = null);
 
     /// <summary>
     /// Tra cứu chi tiết giao dịch từ PayOS. Đây là API backend dùng để polling
-    /// trạng thái thay cho webhook: PAID / CANCELLED / EXPIRED / PENDING.
+    /// trạng thái bổ sung cho webhook: PAID / CANCELLED / EXPIRED / PENDING.
     /// </summary>
     Task<PayOsTransactionInfo?> GetTransactionAsync(string transactionId);
 
     /// <summary>
-    /// Hoàn tiền một giao dịch đã thanh toán (dùng khi khách hủy đơn đã trả tiền).
+    /// Automatic refund capability is currently disabled pending a verified merchant contract.
     /// </summary>
     /// <param name="transactionId">Id giao dịch cần hoàn.</param>
     /// <param name="reason">Lý do hoàn (hiển thị trên lịch sử giao dịch).</param>

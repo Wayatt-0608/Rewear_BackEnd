@@ -14,7 +14,7 @@ namespace REWEAR.Application.Services;
 /// Service này cũng chịu trách nhiệm đồng bộ Shipping.Status với Order.Status
 /// và cập nhật các thông tin shipper (AttemptCount, LastFailureReason...).
 /// </remarks>
-public class ShippingService : IShippingService
+public partial class ShippingService : IShippingService
 {
     private const int STANDARD_DAYS_MIN = 3;
     private const int STANDARD_DAYS_MAX = 5;
@@ -22,19 +22,25 @@ public class ShippingService : IShippingService
     private const int EXPRESS_DAYS_MAX = 2;
 
     private readonly IShippingRepository _shippingRepository;
+    private readonly ICommerceUnitOfWork _transactions;
+    private readonly IPaymentRepository _payments;
     private readonly IOrderRepository _orderRepository;
     private readonly IOrderStatusHistoryRepository _historyRepository;
     private readonly IUserRepository _userRepository;
     private readonly IProductRepository _productRepository;
+    private readonly ILifecycleStore _lifecycle;
 
     public ShippingService(
         IShippingRepository shippingRepository,
         IOrderRepository orderRepository,
         IOrderStatusHistoryRepository historyRepository,
         IUserRepository userRepository,
-        IProductRepository productRepository)
+        IProductRepository productRepository, ICommerceUnitOfWork transactions, IPaymentRepository payments, ILifecycleStore lifecycle)
     {
         _shippingRepository = shippingRepository;
+        _transactions = transactions;
+        _payments = payments;
+        _lifecycle = lifecycle;
         _orderRepository = orderRepository;
         _historyRepository = historyRepository;
         _userRepository = userRepository;
@@ -70,29 +76,28 @@ public class ShippingService : IShippingService
     /// <summary>
     /// Tạo thông tin vận chuyển cho đơn. Chỉ được gọi khi đơn đã thu tiền.
     /// </summary>
-    public async Task<ApiResponse> CreateShippingAsync(
+    public Task<ApiResponse> CreateShippingAsync(string orderId, string? shipperId, ShippingMethod method, string? carrier, string? actorId = null) =>
+        _transactions.ExecuteAsync(() => CreateShippingCoreAsync(orderId, shipperId, method, carrier, actorId));
+
+    private async Task<ApiResponse> CreateShippingCoreAsync(
         string orderId,
         string? shipperId,
         ShippingMethod method,
-        string? carrier)
+        string? carrier, string? actorId)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
         if (order == null)
             return Fail("Không tìm thấy đơn hàng.", ApiErrorCode.NotFound);
 
-        // Bắt buộc đã thu tiền mới được giao: không giao hàng khi khách chưa trả.
-        if (order.Status is OrderStatus.AwaitingPayment or OrderStatus.PaymentExpired
-            or OrderStatus.Cancelled)
-        {
-            return Fail(
-                "Chỉ tạo vận chuyển cho đơn đã thanh toán thành công.",
-                ApiErrorCode.Conflict);
-        }
+        var payment = await _payments.GetLatestByOrderIdAsync(orderId);
+        if (order.Status != OrderStatus.Confirmed || payment?.Status != PaymentStatus.Paid || payment.RequiresReconciliation || payment.RefundState == "Requested")
+            return Fail("Đơn chưa đủ điều kiện giao hàng hoặc đang chờ hoàn tiền.", ApiErrorCode.Conflict);
+        if (string.IsNullOrWhiteSpace(shipperId)) return Fail("Cần phân công người giao hàng.", ApiErrorCode.Validation);
+        method = order.ShippingMethod;
 
         // Đã có thông tin vận chuyển thì không tạo lại (tránh nhân đôi).
         var existing = await _shippingRepository.GetByOrderIdAsync(orderId);
-        if (existing != null)
-            return Fail("Đơn hàng đã có thông tin vận chuyển.", ApiErrorCode.Conflict);
+
 
         // Snapshot tên shipper để hiển thị trên lịch sử.
         string? shipperName = null;
@@ -106,6 +111,15 @@ public class ShippingService : IShippingService
             shipperName = shipper.FullName;
         }
 
+        if (existing != null)
+        {
+            if (existing.ShipperId == shipperId) return new ApiResponse { Success = true, Data = BuildShippingResponse(existing), Message = "Đã phân công người giao hàng này." };
+            if (existing.Status != ShippingStatus.Pending || existing.PickedUpAt.HasValue) return Fail("Chỉ đổi phân công trước khi đã lấy hàng.", ApiErrorCode.Conflict);
+            existing.ShipperId = shipperId; existing.ShipperName = shipperName; existing.AssignedAt = DateTime.UtcNow;
+            await _shippingRepository.UpdateAsync(existing);
+            await AssignmentHistoryAsync(order, existing, "Reassigned", actorId);
+            return new ApiResponse { Success = true, Data = BuildShippingResponse(existing), Message = "Đã cập nhật phân công." };
+        }
         var shipping = new Shipping
         {
             OrderId = order.Id,
@@ -117,10 +131,11 @@ public class ShippingService : IShippingService
             Carrier = carrier,
             ShipperId = shipperId,
             ShipperName = shipperName,
-            AttemptCount = 0
+            AttemptCount = 0, AssignedAt = DateTime.UtcNow, RequiresPickupConfirmation = true
         };
 
         await _shippingRepository.CreateAsync(shipping);
+        await AssignmentHistoryAsync(order, shipping, "Assigned", actorId);
 
         // Mirror ngày dự kiến giao lên Order để khách xem được ngay trên tracking.
         if (!order.EstimatedDeliveryDate.HasValue)
@@ -140,7 +155,9 @@ public class ShippingService : IShippingService
     /// <summary>
     /// Cập nhật vận chuyển: bàn giao cho đơn vị vận chuyển hoặc đánh dấu giao xong.
     /// </summary>
-    public async Task<ApiResponse> UpdateShippingAsync(string orderId, UpdateShippingRequest request)
+    public Task<ApiResponse> UpdateShippingAsync(string orderId, UpdateShippingRequest request) => _transactions.ExecuteAsync(() => UpdateShippingCoreAsync(orderId, request));
+
+    private async Task<ApiResponse> UpdateShippingCoreAsync(string orderId, UpdateShippingRequest request)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
         if (order == null)
@@ -150,9 +167,12 @@ public class ShippingService : IShippingService
         if (shipping == null)
             return Fail("Đơn hàng chưa có thông tin vận chuyển.", ApiErrorCode.NotFound);
 
-        // Đã giao xong rồi thì không sửa nữa (sản phẩm đã chốt Sold).
-        if (shipping.Status == ShippingStatus.Delivered)
-            return Fail("Đơn hàng đã giao xong, không thể cập nhật vận chuyển.", ApiErrorCode.Conflict);
+        if (shipping.Status is not (ShippingStatus.Pending or ShippingStatus.PickedUp or ShippingStatus.InTransit)
+            || order.Status is not (OrderStatus.Confirmed or OrderStatus.Shipping))
+            return Fail("Chỉ sửa thông tin của chuyến giao đang hoạt động.", ApiErrorCode.Conflict);
+        var payment = await _payments.GetLatestByOrderIdAsync(orderId);
+        if (payment?.Status != PaymentStatus.Paid || payment.RequiresReconciliation || payment.RefundState == "Requested")
+            return Fail("Thanh toán đang được xử lý; chưa thể cập nhật chuyến giao.", ApiErrorCode.Conflict);
 
         if (!string.IsNullOrWhiteSpace(request.Carrier))
             shipping.Carrier = request.Carrier;
@@ -174,13 +194,7 @@ public class ShippingService : IShippingService
         if (!string.IsNullOrWhiteSpace(request.Note))
             shipping.Note = request.Note;
 
-        // Có mã vận đơn mà chưa gửi hàng -> đánh dấu đã bàn giao (đang chuyển).
-        if (shipping.Status == ShippingStatus.Pending
-            && !string.IsNullOrWhiteSpace(shipping.TrackingNumber))
-        {
-            shipping.Status = ShippingStatus.InTransit;
-            shipping.ShippedAt = DateTime.UtcNow;
-        }
+        // Metadata changes never move the shipment. Use the guarded status endpoint.
 
         shipping.UpdatedAt = DateTime.UtcNow;
         await _shippingRepository.UpdateAsync(shipping);
@@ -203,21 +217,30 @@ public class ShippingService : IShippingService
         if (order == null)
             return null;
 
-        if (userId != null && order.UserId != userId)
-            return null;
+
 
         var shipping = await _shippingRepository.GetByOrderIdAsync(orderId);
         if (shipping == null)
             return null;
 
-        return BuildShippingResponse(shipping);
+        bool internalView = false;
+        if (userId != null && order.UserId != userId)
+        {
+            var actor = await _userRepository.GetByIdAsync(userId);
+            if (actor == null || (actor.Role is not (UserRole.Admin or UserRole.Staff) && !(actor.Role == UserRole.Shipper && shipping.ShipperId == userId))) return null;
+            internalView = true;
+        }
+        return await BuildDeliveryAsync(shipping, order, internalView);
     }
 
     /// <summary>
     /// Cập nhật trạng thái vận chuyển từ Shipper (hoặc Staff/Admin):
     /// đồng bộ Order.Status, ghi timeline, cập nhật AttemptCount / LastFailureReason...
     /// </summary>
-    public async Task<ApiResponse> UpdateShippingStatusAsync(
+    public Task<ApiResponse> UpdateShippingStatusAsync(string orderId, UpdateShippingStatusRequest request, string userId, UserRole userRole) =>
+        _transactions.ExecuteAsync(() => UpdateShippingStatusCoreAsync(orderId, request, userId, userRole));
+
+    private async Task<ApiResponse> UpdateShippingStatusCoreAsync(
         string orderId,
         UpdateShippingStatusRequest request,
         string userId,
@@ -238,6 +261,11 @@ public class ShippingService : IShippingService
             return Fail("Bạn không phải shipper phụ trách đơn này.", ApiErrorCode.Forbidden);
         }
 
+        if (userRole != UserRole.Shipper) return Fail("Bạn không có quyền cập nhật giao hàng.", ApiErrorCode.Forbidden);
+        var payment = await _payments.GetLatestByOrderIdAsync(orderId);
+        if (payment?.Status != PaymentStatus.Paid || payment.RequiresReconciliation || payment.RefundState == "Requested")
+            return Fail("Đơn chưa đủ điều kiện giao hàng.", ApiErrorCode.Conflict);
+
         // Parse + validate trạng thái đầu vào.
         if (!Enum.IsDefined(typeof(ShippingStatus), request.Status))
             return Fail("Trạng thái vận chuyển không hợp lệ.", ApiErrorCode.Validation);
@@ -256,14 +284,31 @@ public class ShippingService : IShippingService
             };
         }
 
+        bool allowed = (shipping.Status, newShippingStatus) switch
+        {
+            (ShippingStatus.Pending, ShippingStatus.PickedUp) => order.Status == OrderStatus.Confirmed,
+            (ShippingStatus.PickedUp, ShippingStatus.InTransit) => order.Status == OrderStatus.Confirmed,
+            (ShippingStatus.Pending, ShippingStatus.InTransit) => !shipping.RequiresPickupConfirmation && order.Status == OrderStatus.Confirmed,
+            (ShippingStatus.InTransit, ShippingStatus.Delivered or ShippingStatus.Failed) => order.Status == OrderStatus.Shipping,
+            _ => false
+        };
+        if (!allowed) return Fail("Không thể chuyển trạng thái vận chuyển theo bước này.", ApiErrorCode.Conflict);
+        if (newShippingStatus == ShippingStatus.InTransit && string.IsNullOrWhiteSpace(request.TrackingNumber ?? shipping.TrackingNumber))
+            return Fail("Cần mã vận đơn trước khi giao.", ApiErrorCode.Validation);
+        if (newShippingStatus == ShippingStatus.Failed && !string.IsNullOrWhiteSpace(request.FailureCode) && !DeliveryHistoryMapping.FailureReasons.ContainsKey(request.FailureCode)) return Fail("Lý do giao thất bại không hợp lệ.", ApiErrorCode.Validation);
+        if (newShippingStatus == ShippingStatus.Failed && (string.IsNullOrWhiteSpace(request.FailureCode) || request.FailureCode == "Other") && string.IsNullOrWhiteSpace(request.Note))
+            return Fail("Cần ghi lý do giao thất bại.", ApiErrorCode.Validation);
+
         // Lấy tên người thao tác để snapshot timeline.
         var actor = await _userRepository.GetByIdAsync(userId);
-        var actorName = actor?.FullName;
+        if (actor?.Role != UserRole.Shipper) return Fail("Tài khoản giao hàng không còn hợp lệ.", ApiErrorCode.Forbidden);
+        var actorName = actor.FullName;
         var actorRole = userRole == UserRole.Shipper
             ? OrderStatusChangedBy.Shipper
             : OrderStatusChangedBy.Staff;
 
         var fromOrderStatus = order.Status;
+        var previousShippingStatus = shipping.Status;
 
         // Cập nhật shipping fields.
         shipping.Status = newShippingStatus;
@@ -275,18 +320,19 @@ public class ShippingService : IShippingService
         if (!string.IsNullOrWhiteSpace(request.Note))
             shipping.Note = request.Note;
 
+        if (newShippingStatus == ShippingStatus.PickedUp && shipping.PickedUpAt == null) shipping.PickedUpAt = DateTime.UtcNow;
         if (newShippingStatus == ShippingStatus.InTransit && shipping.ShippedAt == null)
             shipping.ShippedAt = DateTime.UtcNow;
         if (newShippingStatus == ShippingStatus.Delivered)
             shipping.DeliveredAt = DateTime.UtcNow;
+        if (newShippingStatus is ShippingStatus.PickedUp or ShippingStatus.InTransit or ShippingStatus.Delivered)
+            await MoveCustodyAsync(order, newShippingStatus == ShippingStatus.Delivered ? "Buyer" : "Shipper", userId);
 
         if (newShippingStatus == ShippingStatus.Failed)
         {
-            // Server tự tăng AttemptCount; nếu client truyền AttemptCount thì dùng
-            // giá trị lớn hơn giữa client và server+1 (chống rollback gian lận).
+            // Số lần giao thất bại chỉ do server tăng, bỏ qua giá trị do client gửi.
             shipping.AttemptCount += 1;
-            if (request.AttemptCount.HasValue && request.AttemptCount.Value > shipping.AttemptCount)
-                shipping.AttemptCount = request.AttemptCount.Value;
+            shipping.LastFailureCode = string.IsNullOrWhiteSpace(request.FailureCode) ? "Other" : request.FailureCode;
             shipping.LastFailureReason = string.IsNullOrWhiteSpace(request.Note)
                 ? "Shipper báo giao thất bại."
                 : request.Note;
@@ -311,6 +357,10 @@ public class ShippingService : IShippingService
         {
             OrderId = order.Id,
             FromStatus = fromOrderStatus,
+            EventType = newShippingStatus == ShippingStatus.Failed ? "DeliveryFailed" : newShippingStatus.ToString(),
+            ShipmentId = shipping.Id, AssignedShipperId = shipping.ShipperId,
+            FromShippingStatus = previousShippingStatus.ToString(), ToShippingStatus = newShippingStatus.ToString(),
+            CustomerMessage = newShippingStatus == ShippingStatus.Failed ? DeliveryHistoryMapping.FailureReasons[shipping.LastFailureCode ?? "Other"] : null,
             ToStatus = newOrderStatus,
             Note = request.Note,
             ChangedBy = actorRole,
@@ -337,6 +387,8 @@ public class ShippingService : IShippingService
 
         foreach (var order in confirmedOrders)
         {
+            var payment = await _payments.GetLatestByOrderIdAsync(order.Id);
+            if (payment?.Status != PaymentStatus.Paid || payment.RequiresReconciliation || payment.RefundState == "Requested") continue;
             var shipping = await _shippingRepository.GetByOrderIdAsync(order.Id);
             var buyer = await _userRepository.GetByIdAsync(order.UserId);
 
@@ -349,7 +401,7 @@ public class ShippingService : IShippingService
                 OrderId = order.Id,
                 OrderCode = order.OrderCode,
                 BuyerId = order.UserId,
-                BuyerName = buyer?.FullName ?? string.Empty,
+                BuyerName = order.ShippingRecipientName, RecipientName = order.ShippingRecipientName, ShippingAddress = order.FullShippingAddress, TotalQuantity = order.TotalQuantity,
                 TotalAmount = order.TotalAmount,
                 CreatedAt = order.CreatedAt,
                 HasShipping = shipping != null,
@@ -407,11 +459,13 @@ public class ShippingService : IShippingService
                 ShippingId = shipping.Id,
                 OrderId = order.Id,
                 OrderCode = order.OrderCode,
-                BuyerId = order.UserId,
-                BuyerName = buyer?.FullName ?? string.Empty,
+                BuyerId = currentUserRole == UserRole.Shipper ? "" : order.UserId,
+                BuyerName = order.ShippingRecipientName,
                 BuyerPhone = order.ShippingPhoneNumber,
                 ShippingAddress = order.FullShippingAddress,
                 TotalAmount = order.TotalAmount,
+                Method = shipping.Method.ToString(), PaymentStatus = (await _payments.GetLatestByOrderIdAsync(order.Id))?.Status.ToString() ?? "Pending",
+                TotalQuantity = order.TotalQuantity, AssignedAt = shipping.AssignedAt, PickedUpAt = shipping.PickedUpAt,
                 ShippingStatus = shipping.Status.ToString(),
                 OrderStatus = order.Status.ToString(),
                 TrackingNumber = shipping.TrackingNumber,
@@ -435,18 +489,19 @@ public class ShippingService : IShippingService
     public async Task<ShippingListResponse> GetAllAsync(ShippingStatus? status)
     {
         var shippings = await _shippingRepository.GetAllAsync(status);
-        return new ShippingListResponse
-        {
-            Items = shippings.Select(BuildShippingResponse).ToList(),
-            TotalCount = shippings.Count,
-            FilterStatus = status
-        };
+        var items = new List<ShippingResponse>();
+        foreach (var shipment in shippings)
+        { var order = await _orderRepository.GetByIdAsync(shipment.OrderId); if (order != null) items.Add(await BuildDeliveryAsync(shipment, order, true)); }
+        return new ShippingListResponse { Items = items, TotalCount = items.Count, FilterStatus = status };
     }
 
     /// <summary>
     /// Admin yêu cầu giao lại sau khi shipper trả hàng về kho do thất bại nhiều lần.
     /// </summary>
-    public async Task<ApiResponse> ReshipAsync(
+    public Task<ApiResponse> ReshipAsync(string orderId, ReshipRequest request, string adminUserId, string adminUserName) =>
+        _transactions.ExecuteAsync(() => ReshipCoreAsync(orderId, request, adminUserId, adminUserName));
+
+    private async Task<ApiResponse> ReshipCoreAsync(
         string orderId,
         ReshipRequest request,
         string adminUserId,
@@ -465,6 +520,10 @@ public class ShippingService : IShippingService
                 "Chỉ reship được đơn đang ở trạng thái giao thất bại.",
                 ApiErrorCode.Conflict);
 
+        var payment = await _payments.GetLatestByOrderIdAsync(orderId);
+        if (payment?.Status != PaymentStatus.Paid || payment.RequiresReconciliation || payment.RefundState == "Requested")
+            return Fail("Thanh toán hoặc hàng hoàn đang được xử lý; không thể giao lại.", ApiErrorCode.Conflict);
+
         // Cập nhật shipper nếu có yêu cầu đổi.
         if (!string.IsNullOrWhiteSpace(request.ShipperId)
             && !string.Equals(request.ShipperId, shipping.ShipperId, StringComparison.Ordinal))
@@ -480,10 +539,12 @@ public class ShippingService : IShippingService
 
         // Reset trạng thái shipping, GIỮ NGUYÊN AttemptCount (lưu vết).
         shipping.Status = ShippingStatus.Pending;
+        shipping.AssignedAt = DateTime.UtcNow; shipping.PickedUpAt = null; shipping.RequiresPickupConfirmation = true;
         shipping.ShippedAt = null;
         shipping.DeliveredAt = null;
         shipping.LastFailedAt = null;
         shipping.LastFailureReason = null;
+        shipping.LastFailureCode = null;
         shipping.UpdatedAt = DateTime.UtcNow;
 
         // Order: Failed -> Confirmed.
@@ -502,6 +563,7 @@ public class ShippingService : IShippingService
         {
             OrderId = order.Id,
             FromStatus = OrderStatus.Failed,
+            EventType = "RedeliveryRequested", ShipmentId = shipping.Id, AssignedShipperId = shipping.ShipperId, FromShippingStatus = "Failed", ToShippingStatus = "Pending",
             ToStatus = OrderStatus.Confirmed,
             Note = note,
             ChangedBy = OrderStatusChangedBy.Staff,
@@ -520,59 +582,8 @@ public class ShippingService : IShippingService
     /// <summary>
     /// Admin hủy vĩnh viễn đơn đã Failed: buyer mất tiền + hàng, sản phẩm vẫn Sold.
     /// </summary>
-    public async Task<ApiResponse> CancelPermanentAsync(
-        string orderId,
-        CancelPermanentRequest request,
-        string adminUserId,
-        string adminUserName)
-    {
-        if (string.IsNullOrWhiteSpace(request.Note))
-            return Fail("Vui lòng nhập lý do hủy.", ApiErrorCode.Validation);
-
-        var order = await _orderRepository.GetByIdAsync(orderId);
-        if (order == null)
-            return Fail("Không tìm thấy đơn hàng.", ApiErrorCode.NotFound);
-
-        var shipping = await _shippingRepository.GetByOrderIdAsync(orderId);
-        if (shipping == null)
-            return Fail("Đơn hàng chưa có thông tin vận chuyển.", ApiErrorCode.NotFound);
-
-        if (order.Status != OrderStatus.Failed || shipping.Status != ShippingStatus.Failed)
-            return Fail(
-                "Chỉ hủy vĩnh viễn đơn đang ở trạng thái giao thất bại.",
-                ApiErrorCode.Conflict);
-
-        // Order: Failed -> Cancelled (lưu lý do).
-        order.Status = OrderStatus.Cancelled;
-        order.CancelReason = $"Hủy vĩnh viễn: {request.Note}";
-        order.UpdatedAt = DateTime.UtcNow;
-
-        // Shipping: Failed -> Returned (sản phẩm vẫn Sold, không refund stock).
-        shipping.Status = ShippingStatus.Returned;
-        shipping.UpdatedAt = DateTime.UtcNow;
-
-        await _shippingRepository.UpdateAsync(shipping);
-        await _orderRepository.UpdateAsync(order);
-
-        // Ghi timeline.
-        await _historyRepository.CreateAsync(new OrderStatusHistory
-        {
-            OrderId = order.Id,
-            FromStatus = OrderStatus.Failed,
-            ToStatus = OrderStatus.Cancelled,
-            Note = $"Admin {adminUserName} đã hủy vĩnh viễn - {request.Note}",
-            ChangedBy = OrderStatusChangedBy.Staff,
-            ChangedByUserId = adminUserId,
-            ChangedByName = adminUserName
-        });
-
-        return new ApiResponse
-        {
-            Success = true,
-            Message = "Đã hủy vĩnh viễn đơn hàng.",
-            Data = BuildShippingResponse(shipping)
-        };
-    }
+    public Task<ApiResponse> CancelPermanentAsync(string orderId, CancelPermanentRequest request, string adminUserId, string adminUserName) =>
+        Task.FromResult(Fail("Cần tiếp nhận hàng hoàn, kiểm định và xử lý hoàn tiền; không được hủy để giữ cả tiền và hàng.", ApiErrorCode.Conflict));
 
     // ============================================
     // HELPER
@@ -582,11 +593,26 @@ public class ShippingService : IShippingService
     /// Chốt sản phẩm sang Sold khi đơn giao thành công.
     /// Logic giống OrderService.UpdateStatusAsync để giữ single source of truth.
     /// </summary>
+    private async Task MoveCustodyAsync(Order order, string target, string actor)
+    {
+        foreach (var line in order.Items)
+        foreach (var item in await _lifecycle.FindAsync<InventoryItem>(i => i.ProductId == line.ProductId && i.State != "Consumed"))
+        {
+            if (item.Custody == target) continue;
+            var from = item.Custody; item.Custody = target;
+            item.Location = target == "Shipper" ? "Người giao hàng đang quản lý" : "Đã giao người mua";
+            await _lifecycle.SaveAsync(item);
+            await _lifecycle.InsertAsync(new InventoryMovement { InventoryId = item.Id, FromState = item.State, ToState = item.State,
+                FromCustody = from, ToCustody = target, ActorId = actor, RelatedId = order.Id,
+                Reason = target == "Shipper" ? "Bàn giao hàng cho người giao hàng." : "Xác nhận đã giao hàng cho người mua." });
+        }
+    }
+
     private async Task CommitDeliveredStockAsync(Order order)
     {
         foreach (var item in order.Items)
         {
-            await _productRepository.CommitStockAsync(item.ProductId, item.Quantity);
+            await _productRepository.CommitStockAsync(item.ProductId, item.Quantity, order.Id);
         }
     }
 
@@ -597,7 +623,7 @@ public class ShippingService : IShippingService
     {
         return shipping switch
         {
-            ShippingStatus.Pending => OrderStatus.Confirmed,
+            ShippingStatus.Pending or ShippingStatus.PickedUp => OrderStatus.Confirmed,
             ShippingStatus.InTransit => OrderStatus.Shipping,
             ShippingStatus.Delivered => OrderStatus.Delivered,
             ShippingStatus.Failed => OrderStatus.Failed,
@@ -634,6 +660,7 @@ public class ShippingService : IShippingService
             Carrier = s.Carrier,
             TrackingNumber = s.TrackingNumber,
             EstimatedDeliveryDate = s.EstimatedDeliveryDate,
+            AssignedAt = s.AssignedAt, PickedUpAt = s.PickedUpAt,
             ShippedAt = s.ShippedAt,
             DeliveredAt = s.DeliveredAt,
             ShipperId = s.ShipperId,

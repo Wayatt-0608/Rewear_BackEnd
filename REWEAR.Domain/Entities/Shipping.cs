@@ -12,6 +12,10 @@ namespace REWEAR.Domain.Entities;
 [BsonIgnoreExtraElements]
 public class Shipping
 {
+    public DateTime? AssignedAt { get; set; }
+    public DateTime? PickedUpAt { get; set; }
+    public bool RequiresPickupConfirmation { get; set; }
+    public string? LastFailureCode { get; set; }
     /// <summary>Khóa chính.</summary>
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]

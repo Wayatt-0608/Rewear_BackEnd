@@ -9,9 +9,11 @@ Read `docs/PROJECT_CONTEXT.md` at the repository root and the affected controlle
 
 Preserve these relationships across changes:
 
-- Checkout buys selected cart items only. Validate address ownership and current product availability, reserve stock atomically, release prior reservations on failure, and keep unselected cart items.
-- A newly created order is `AwaitingPayment`. A valid paid result moves payment to `Paid` and order to `Confirmed`; inventory remains `Reserved` until delivery. Failed or expired unpaid checkout releases stock and records the order transition.
+- Checkout buys selected cart items only. Validate address ownership, current prices and availability. Use Mongo transactions and order-owned StockReservations; never restore stock by product status alone. Preserve the cart until a valid payment URL is persisted, and always keep unselected items.
+- A newly created order is `AwaitingPayment`. An on-time verified paid result commits its reservation to Paid, moves payment to `Paid` and order to `Confirmed`; product is Sold when no available stock remains. Delivery must not subtract stock again. Expired/cancelled unpaid orders release only their own Reserved ledger entries.
 - Treat webhook and polling as two paths to the same payment outcome. Check signatures where webhook data is trusted, reconcile amount and payment link identity, and make repeated or late notifications safe. Do not mark paid from a browser return URL alone.
-- Do not create shipping for unpaid orders. Delivery commits reserved stock. Paid cancellation or refund needs a verified gateway outcome before updating local money and stock state.
+- Do not create shipping for unpaid, reconciliation-held or refund-requested orders. Check assigned shipper and state transitions on the server. Metadata edits never advance shipping state.
+- Refund request does not mean money refunded. Automatic gateway refunds are disabled until a merchant contract is verified. Admin may confirm an actually completed manual refund with reference and exact amount. Shipped goods require full-order receipt and per-item inspection; only approved items may be restored once after refund confirmation. Keep partial/excess-money cases in reconciliation until a supported workflow exists.
+- Sourcing payout is an actual manual-payment record, not an automatic transfer. Allocate only paid/inspected raw items to upcycling; publish only after QC approval. Preserve acquisition/production cost snapshots and inventory history, including quarantine.
 
 For a proposed change, inspect timeout, retries, duplicate requests, gateway errors, and state races that actually touch the affected path. Keep the gateway base URL separate from the frontend return/cancel base URL. Do not log credentials or full signed payloads. Report unverified external behavior explicitly and update the project context when the implemented flow changes.

@@ -8,6 +8,7 @@ namespace REWEAR.Application.Interfaces;
 /// </summary>
 public interface IOrderRepository
 {
+    Task<List<Order>> GetExpiredAwaitingAsync(DateTime now, int limit);
     /// <summary>
     /// Lấy đơn hàng theo Id kỹ thuật.
     /// </summary>

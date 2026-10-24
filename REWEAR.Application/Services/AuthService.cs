@@ -14,6 +14,7 @@ namespace REWEAR.Application.Services;
 /// </summary>
 public class AuthService : IAuthService
 {
+    private readonly ICommerceUnitOfWork _transactions;
     private readonly IUserRepository _userRepository;
     private readonly IEmailService _emailService;
     private readonly JwtSettings _jwtSettings;
@@ -21,8 +22,9 @@ public class AuthService : IAuthService
     // Thời gian hết hạn OTP: 5 phút
     private const int OTP_EXPIRY_MINUTES = 5;
 
-    public AuthService(IUserRepository userRepository, IEmailService emailService, JwtSettings jwtSettings)
+    public AuthService(IUserRepository userRepository, IEmailService emailService, JwtSettings jwtSettings, ICommerceUnitOfWork transactions)
     {
+        _transactions = transactions;
         _userRepository = userRepository;
         _emailService = emailService;
         _jwtSettings = jwtSettings;
@@ -56,15 +58,15 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Email không hợp lệ." };
 
         // 3. Validate password strength
-        if (request.Password.Length < 6)
-            return new AuthResponse { Success = false, Message = "Mật khẩu phải có ít nhất 6 ký tự." };
+        if (request.Password.Length < 8)
+            return new AuthResponse { Success = false, Message = "Mật khẩu phải có ít nhất 8 ký tự." };
 
         // 6. Kiểm tra password match
         if (request.Password != request.PasswordConfirm)
             return new AuthResponse { Success = false, Message = "Mật khẩu và xác nhận mật khẩu không khớp." };
 
         // 7. Kiểm tra email đã tồn tại
-        var existingUser = await _userRepository.GetByEmailAsync(request.Email);
+        var existingUser = await _userRepository.GetByEmailAsync(request.Email.ToLower().Trim());
         if (existingUser != null)
             return new AuthResponse { Success = false, Message = "Email đã được sử dụng." };
 
@@ -72,17 +74,8 @@ public class AuthService : IAuthService
         string otpCode = GenerateOtpCode();
         DateTime otpExpiry = DateTime.UtcNow.AddMinutes(OTP_EXPIRY_MINUTES);
 
-        // ===== TẠO USER =====
-        // Parse role từ request: nếu null/rỗng/invalid → mặc định Member.
-        // Frontend KHÔNG gửi field role (sẽ null) → luôn set Member.
-        // Swagger có thể gửi role bất kỳ để test nhanh.
-        // Admin upgrade role chính thức qua: PUT /api/admin/users/{id}/role
-        UserRole userRole = UserRole.Member;
-        if (!string.IsNullOrWhiteSpace(request.Role)
-            && Enum.TryParse<UserRole>(request.Role, ignoreCase: true, out var parsedRole))
-        {
-            userRole = parsedRole;
-        }
+        // Public registration always creates a Member; privileged roles require Admin.
+        const UserRole userRole = UserRole.Member;
 
         var user = new User
         {
@@ -132,7 +125,9 @@ public class AuthService : IAuthService
     /// <summary>
     /// Kích hoạt tài khoản bằng mã OTP.
     /// </summary>
-    public async Task<AuthResponse> VerifyOtpAsync(VerifyOtpRequest request)
+    public Task<AuthResponse> VerifyOtpAsync(VerifyOtpRequest request) => _transactions.ExecuteAsync(() => VerifyOtpCoreAsync(request));
+
+    private async Task<AuthResponse> VerifyOtpCoreAsync(VerifyOtpRequest request)
     {
         // Validate input
         if (string.IsNullOrWhiteSpace(request.Email))
@@ -159,8 +154,9 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Mã OTP đã hết hạn. Vui lòng đăng ký lại để nhận mã mới." };
 
         // Kiểm tra OTP đúng không
+        if (user.OtpAttempts >= 5) return new AuthResponse { Success = false, Message = "Đã vượt số lần thử OTP. Vui lòng yêu cầu mã mới." };
         if (user.OtpCode != request.OtpCode.Trim())
-            return new AuthResponse { Success = false, Message = "Mã OTP không chính xác." };
+        { user.OtpAttempts++; await _userRepository.UpdateAsync(user); return new AuthResponse { Success = false, Message = "Mã OTP không chính xác." }; }
 
         // ===== XÁC THỰC THÀNH CÔNG =====
         user.IsVerified = true;
@@ -254,6 +250,7 @@ public class AuthService : IAuthService
         // Tạo OTP mới
         string otpCode = GenerateOtpCode();
         user.OtpCode = otpCode;
+        user.OtpAttempts = 0;
         user.OtpExpiresAt = DateTime.UtcNow.AddMinutes(OTP_EXPIRY_MINUTES);
         user.UpdatedAt = DateTime.UtcNow;
         await _userRepository.UpdateAsync(user);
@@ -280,7 +277,9 @@ public class AuthService : IAuthService
     /// <summary>
     /// Đặt lại mật khẩu bằng OTP.
     /// </summary>
-    public async Task<AuthResponse> ResetPasswordAsync(ResetPasswordRequest request)
+    public Task<AuthResponse> ResetPasswordAsync(ResetPasswordRequest request) => _transactions.ExecuteAsync(() => ResetPasswordCoreAsync(request));
+
+    private async Task<AuthResponse> ResetPasswordCoreAsync(ResetPasswordRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
             return new AuthResponse { Success = false, Message = "Email không được để trống." };
@@ -295,8 +294,8 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Xác nhận mật khẩu không được để trống." };
 
         // Validate password strength
-        if (request.NewPassword.Length < 6)
-            return new AuthResponse { Success = false, Message = "Mật khẩu phải có ít nhất 6 ký tự." };
+        if (request.NewPassword.Length < 8)
+            return new AuthResponse { Success = false, Message = "Mật khẩu phải có ít nhất 8 ký tự." };
 
         // Kiểm tra password match
         if (request.NewPassword != request.NewPasswordConfirm)
@@ -311,8 +310,9 @@ public class AuthService : IAuthService
         if (string.IsNullOrEmpty(user.OtpCode))
             return new AuthResponse { Success = false, Message = "Không có mã OTP. Vui lòng gửi yêu cầu đặt lại mật khẩu trước." };
 
+        if (user.OtpAttempts >= 5) return new AuthResponse { Success = false, Message = "Đã vượt số lần thử OTP. Vui lòng yêu cầu mã mới." };
         if (user.OtpCode != request.OtpCode.Trim())
-            return new AuthResponse { Success = false, Message = "Mã OTP không chính xác." };
+        { user.OtpAttempts++; await _userRepository.UpdateAsync(user); return new AuthResponse { Success = false, Message = "Mã OTP không chính xác." }; }
 
         // Kiểm tra OTP hết hạn
         if (user.OtpExpiresAt == null || user.OtpExpiresAt < DateTime.UtcNow)
@@ -342,8 +342,7 @@ public class AuthService : IAuthService
     /// </summary>
     private static string GenerateOtpCode()
     {
-        Random random = new Random();
-        return random.Next(100000, 999999).ToString();
+        return System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
     }
 
     /// <summary>

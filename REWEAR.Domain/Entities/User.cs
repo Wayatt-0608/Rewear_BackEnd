@@ -16,6 +16,7 @@ namespace REWEAR.Domain.Entities;
 [BsonIgnoreExtraElements]
 public class User
 {
+    public int OtpAttempts { get; set; }
     /// <summary>
     /// Khóa chính của người dùng.
     /// </summary>

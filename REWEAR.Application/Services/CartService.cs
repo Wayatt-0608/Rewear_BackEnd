@@ -95,6 +95,8 @@ public class CartService : ICartService
         if (product.Status != ProductStatus.Available)
             return Fail(BuildUnavailableMessage(product.Status));
 
+        if ((product.IsUnique ?? product.StockQuantity <= 1) && request.Quantity != 1) return Fail("Sản phẩm độc bản chỉ được chọn một món.");
+
         // Không cho thêm nhiều hơn tồn kho thực tế của sản phẩm.
         if (product.StockQuantity < 1)
             return Fail("Sản phẩm đã hết hàng.");
@@ -110,6 +112,7 @@ public class CartService : ICartService
         // Sản phẩm đã có trong giỏ: cộng dồn số lượng thay vì báo lỗi.
         if (existingItem != null)
         {
+            if (product.IsUnique ?? product.StockQuantity <= 1) return new ApiResponse { Success = true, Message = "Sản phẩm độc bản đã có trong giỏ.", Data = await GetCartAsync(userId) };
             int newQuantity = existingItem.Quantity + request.Quantity;
 
             if (newQuantity > MAX_QUANTITY_PER_ITEM)
@@ -185,7 +188,9 @@ public class CartService : ICartService
 
         // Không cho đặt số lượng vượt tồn kho thực tế của sản phẩm.
         var product = await _productRepository.GetByIdAsync(item.ProductId);
-        if (product != null && request.Quantity > product.StockQuantity)
+        if (product == null || !product.IsActive || product.Status != ProductStatus.Available) return Fail("Sản phẩm không còn khả dụng.");
+        if ((product.IsUnique ?? product.StockQuantity <= 1) && request.Quantity != 1) return Fail("Sản phẩm độc bản chỉ được chọn một món.");
+        if (request.Quantity > product.StockQuantity)
             return Fail($"Sản phẩm chỉ còn {product.StockQuantity} món.");
 
         item.Quantity = request.Quantity;
@@ -496,6 +501,7 @@ public class CartService : ICartService
                 Condition = product.Condition.ToString(),
                 ProductStatus = product.Status.ToString(),
                 StockQuantity = product.StockQuantity,
+                IsUnique = product.IsUnique ?? product.StockQuantity <= 1,
                 CurrentPrice = product.Price,
                 PriceSnapshot = item.PriceSnapshot,
                 PriceChanged = priceChanged,
