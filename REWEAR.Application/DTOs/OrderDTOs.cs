@@ -87,6 +87,12 @@ public class OrderResponse
     public decimal ShippingFee { get; set; }
     public decimal TotalAmount { get; set; }
 
+    /// <summary>Id voucher đã áp dụng (Task 10). Null nếu không dùng voucher.</summary>
+    public string? VoucherId { get; set; }
+
+    /// <summary>Mã voucher đã áp dụng (Task 10). Null nếu không dùng voucher.</summary>
+    public string? VoucherCode { get; set; }
+
     /// <summary>Trạng thái đơn (AwaitingPayment / Confirmed / Shipping / Delivered / Cancelled / PaymentExpired).</summary>
     public string Status { get; set; } = string.Empty;
 

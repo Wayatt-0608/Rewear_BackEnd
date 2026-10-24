@@ -56,6 +56,8 @@ public partial class CommerceTests
         builder.Services.AddSingleton(new CommerceOptions()); builder.Services.AddSingleton<IEmailService>(new TestEmail()); builder.Services.AddSingleton<ICloudinaryService>(cloudinary ?? new TestCloudinary());
         builder.Services.AddScoped<IAuthService, AuthService>(); builder.Services.AddScoped<ICartService, CartService>();
         builder.Services.AddScoped<IOrderService, OrderService>(); builder.Services.AddScoped<IPaymentService, PaymentService>(); builder.Services.AddScoped<IShippingService, ShippingService>();
+        builder.Services.AddScoped<IVoucherRepository, VoucherRepository>(); builder.Services.AddScoped<IUserVoucherRepository, UserVoucherRepository>();
+        builder.Services.AddScoped<IVoucherService, VoucherService>(); builder.Services.AddScoped<IUserVoucherService, UserVoucherService>();
         builder.Services.AddScoped<ISourcingService, SourcingService>(); builder.Services.AddScoped<CircularFashionService>(); builder.Services.AddScoped<ReturnService>();
         builder.Services.AddScoped<IProductService, ProductService>(); builder.Services.AddScoped<IBrandService, BrandService>(); builder.Services.AddScoped<ICategoryService, CategoryService>();
         builder.Services.AddScoped<IOperationsQueries, OperationsQueries>();

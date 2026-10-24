@@ -40,6 +40,8 @@ public partial class CommerceTests
     internal OrderService OrderService = null!;
     internal PaymentService PaymentService = null!;
     internal ShippingService ShippingService = null!;
+    internal VoucherService VoucherService = null!;
+    internal UserVoucherService UserVoucherService = null!;
     internal TestGateway Gateway = null!;
 
     [OneTimeSetUp]
@@ -72,9 +74,11 @@ public partial class CommerceTests
         Products = new(Context); Orders = new(Context); Payments = new(Context); Carts = new(Context);
         Addresses = new(Context); Users = new(Context); Shippings = new(Context); History = new(Context);
         ShippingService = new(Shippings, Orders, History, Users, Products, Transactions, Payments, new LifecycleStore(Context));
-        OrderService = new(Orders, Carts, Products, Addresses, History, Users, Transactions, new CommerceOptions(), Payments, ShippingService);
+        VoucherService = new(new VoucherRepository(Context), new UserVoucherRepository(Context), Users);
+        UserVoucherService = new(new UserVoucherRepository(Context), new VoucherRepository(Context));
+        OrderService = new(Orders, Carts, Products, Addresses, History, Users, Transactions, new CommerceOptions(), Payments, ShippingService, VoucherService);
         Gateway = new TestGateway();
-        PaymentService = new(Payments, Orders, History, Products, Gateway, Transactions, Carts, Shippings, new TestGatewayConfig(), NullLogger<PaymentService>.Instance, new LifecycleStore(Context));
+        PaymentService = new(Payments, Orders, History, Products, Gateway, Transactions, Carts, Shippings, new TestGatewayConfig(), NullLogger<PaymentService>.Instance, new LifecycleStore(Context), VoucherService);
 
     }
 

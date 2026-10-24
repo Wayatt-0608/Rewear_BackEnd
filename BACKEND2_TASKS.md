@@ -71,7 +71,7 @@
 - [x] Inventory check before checkout
 - [x] Order creation from cart
 - [x] Clear cart after checkout
-- [ ] Apply voucher (Task 10)
+- [x] Apply voucher (Task 10)
 
 ### Task 6: Order Management
 - [x] Order entity (OrderId, UserId, Items, Total, Status)
@@ -112,12 +112,12 @@
 - [x] Update shipping status
 
 ### Task 10: Voucher
-- [ ] Voucher entity (Code, Discount, Expiry, UsageLimit)
-- [ ] Voucher types (Percentage, FixedAmount)
-- [ ] Voucher CRUD (Admin)
-- [ ] Apply voucher to order
-- [ ] Validate voucher (expiry, usage limit, min order)
-- [ ] User voucher collection
+- [x] Voucher entity (Code, Discount, Expiry, UsageLimit)
+- [x] Voucher types (Percentage, FixedAmount)
+- [x] Voucher CRUD (Admin)
+- [x] Apply voucher to order
+- [x] Validate voucher (expiry, usage limit, min order)
+- [x] User voucher collection
 
 ### Task 11: Review & Rating
 - [ ] Review entity (ProductId, UserId, Rating, Comment, Images)
@@ -193,12 +193,12 @@
 - [x] Task 6: Order Management
 
 ### Phase 3: Order Fulfillment (Week 3)
-- [ ] Task 7: Order Status / Tracking
-- [ ] Task 8: Payment
-- [ ] Task 9: Shipping
+- [x] Task 7: Order Status / Tracking
+- [x] Task 8: Payment
+- [x] Task 9: Shipping
 
 ### Phase 4: Engagement (Week 4)
-- [ ] Task 10: Voucher
+- [x] Task 10: Voucher
 - [ ] Task 11: Review & Rating
 - [ ] Task 13: Loyalty
 - [ ] Task 14: Promotion

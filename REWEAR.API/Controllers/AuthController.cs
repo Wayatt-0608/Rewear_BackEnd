@@ -95,9 +95,15 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả người dùng (chỉ dùng để test)
+    /// Lấy danh sách tất cả người dùng (chỉ Admin)
     /// </summary>
+    /// <remarks>
+    /// Endpoint này tồn tại cùng với GET /api/admin/users (dùng cho Admin quản lý).
+    /// Được giữ lại để tương thích với client cũ, nhưng giờ yêu cầu Role Admin.
+    /// Không trả về PasswordHash, OTP hay bất kỳ thông tin bí mật nào.
+    /// </remarks>
     [HttpGet("users")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> GetAllUsers([FromServices] IUserRepository userRepository)
     {
         var users = await userRepository.GetAllAsync();

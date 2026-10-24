@@ -116,6 +116,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderStatusHistoryRepo
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IShippingRepository, ShippingRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingRepository, SourcingRepository>();
+// ====== TASK 10: VOUCHER ======
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IVoucherRepository, VoucherRepository>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserVoucherRepository, UserVoucherRepository>();
 
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ILifecycleStore, LifecycleStore>();
 builder.Services.AddScoped<REWEAR.Application.Services.CircularFashionService>();
@@ -134,6 +137,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductService, REWEAR
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ICartService, REWEAR.Application.Services.CartService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderService, REWEAR.Application.Services.OrderService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEAR.Application.Services.SourcingService>();
+// ====== TASK 10: VOUCHER ======
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IVoucherService, REWEAR.Application.Services.VoucherService>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserVoucherService, REWEAR.Application.Services.UserVoucherService>();
 
 // ====== PAYMENT (Task 8) ======
 // Use platform DNS and certificate validation; never pin changing gateway IPs.
@@ -153,6 +159,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IShippingService,
 
 // Background service đóng phiên thanh toán hết hạn (trả sản phẩm về kho).
 builder.Services.AddHostedService<REWEAR.Infrastructure.Services.PaymentExpirationService>();
+
+// Background service tắt voucher đã hết hạn (Task 10).
+builder.Services.AddHostedService<REWEAR.Infrastructure.Services.VoucherExpirationService>();
 
 // ====== JWT AUTHENTICATION ======
 builder.Services.AddAuthentication(options =>

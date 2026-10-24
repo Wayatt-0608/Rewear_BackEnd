@@ -17,4 +17,4 @@ dotnet test REWEAR.Tests/REWEAR.Tests.csproj --no-restore
 
 Fixture tự initiate replica set nếu chưa có, tạo database `rewear_tests_<guid>` và chỉ xóa database vừa tạo sau mỗi test. Không load appsettings/merchant config production. Gateway/email/upload test doubles chỉ thuộc project tests; API startup smoke test dùng cấu hình dummy tường minh, content root trống.
 
-Nếu một backend đang chạy khóa DLL mặc định, dùng output folder riêng như hướng dẫn trong [COMMERCE_MIGRATION.md](../docs/COMMERCE_MIGRATION.md). Kết quả chốt 25/10/2026: 36/36 bài pass. Bộ test tập trung tiền/tồn/quyền và luồng Jeans → Tote → Delivered → metrics; không phải chứng nhận giao dịch merchant live hoặc toàn bộ 16 phân hệ.
+Nếu một backend đang chạy khóa DLL mặc định, dùng output folder riêng như hướng dẫn trong [COMMERCE_MIGRATION.md](../docs/COMMERCE_MIGRATION.md). Kết quả chốt 25/10/2026: 46/46 bài pass (gồm test voucher giữ chỗ → dùng thật → giải phóng khi hết hạn và clamp discount). Bộ test tập trung tiền/tồn/quyền và luồng Jeans → Tote → Delivered → metrics; không phải chứng nhận giao dịch merchant live hoặc toàn bộ 16 phân hệ.

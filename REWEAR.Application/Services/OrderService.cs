@@ -20,6 +20,7 @@ public class OrderService : IOrderService
     private readonly IOrderStatusHistoryRepository _historyRepository;
     private readonly IUserRepository _userRepository;
     private readonly IShippingService _shippingService;
+    private readonly IVoucherService _vouchers;
 
     public OrderService(
         IOrderRepository orderRepository,
@@ -27,12 +28,13 @@ public class OrderService : IOrderService
         IProductRepository productRepository,
         IAddressRepository addressRepository,
         IOrderStatusHistoryRepository historyRepository,
-        IUserRepository userRepository, ICommerceUnitOfWork transactions, CommerceOptions options, IPaymentRepository payments, IShippingService shippingService)
+        IUserRepository userRepository, ICommerceUnitOfWork transactions, CommerceOptions options, IPaymentRepository payments, IShippingService shippingService, IVoucherService vouchers)
     {
         _transactions = transactions;
         _options = options;
         _payments = payments;
         _shippingService = shippingService;
+        _vouchers = vouchers;
         _orderRepository = orderRepository;
         _cartRepository = cartRepository;
         _productRepository = productRepository;
@@ -112,10 +114,19 @@ public class OrderService : IOrderService
             };
         }
 
-        // ===== 3. CHỐT TỒN KHO (INVENTORY CHECK) =====
+        // ===== 3. TÍNH VOUCHER (TRƯỚC KHI CHỐT KHO) =====
+        // Voucher phải được validate và tính discount TRƯỚC khi chốt tồn kho.
+        // Nếu validate sau khi chốt kho, một voucher không hợp lệ sẽ bị bỏ qua âm thầm
+        // và đơn vẫn được tạo với giá đầy đủ, trong khi khách nghĩ đã được giảm.
+        decimal subTotal = await CalculateSubTotalAsync(selectedItems);
+        var voucher = await ResolveVoucherAsync(userId, request.VoucherCode, subTotal);
+        if (!string.IsNullOrWhiteSpace(voucher.Error))
+            return Fail(voucher.Error, ApiErrorCode.Validation);
+
+        // ===== 4. CHỐT TỒN KHO (INVENTORY CHECK) =====
         // Dùng atomic update từng sản phẩm. Nếu 1 sản phẩm bị người khác mua trước
         // thì phải trả lại các sản phẩm đã chốt trước đó (rollback).
-        var order = await BuildOrder(userId, selectedItems, address, request);
+        var order = await BuildOrder(userId, selectedItems, address, request, voucher.DiscountAmount, voucher.VoucherId, voucher.VoucherCode);
         order.CheckoutKey = key;
         order.SelectedCartItemIds = selectedItems.Select(i => i.Id).ToList();
         order.ReservationExpiresAt = DateTime.UtcNow.AddMinutes(_options.ReservationMinutes);
@@ -130,10 +141,44 @@ public class OrderService : IOrderService
             reservedProductIds.Add(item.ProductId);
         }
 
-        // ===== 4. TẠO ĐƠN HÀNG =====
-        await _orderRepository.CreateAsync(order);
+        // ===== 4b. GIỮ CHỖ VOUCHER CHO ĐƠN NÀY =====
+        // Giữ chỗ ngay khi tạo đơn (chưa thanh toán) để cùng 1 voucher không thể
+        // bị áp cho 2 đơn cùng lúc. Nếu voucher đã bị đơn khác chiếm trước đó
+        // thì hủy lượt checkout này và trả lại tồn kho — không tạo đơn.
+        if (!string.IsNullOrWhiteSpace(voucher.VoucherId))
+        {
+            bool reserved = await _vouchers.ReserveForOrderAsync(userId, voucher.VoucherId, order.Id);
+            if (!reserved)
+            {
+                // Trả lại tồn kho: chưa có đơn nào được tạo nên không cần hủy đơn.
+                foreach (var item in selectedItems)
+                    await _productRepository.ReleaseStockAsync(item.ProductId, item.Quantity, order.Id);
 
-        // ===== 5. GHI MỐC TIMELINE ĐẦU TIÊN (Task 7) =====
+                return Fail(
+                    "Mã voucher đã được dùng cho đơn khác. Vui lòng bỏ mã voucher hoặc thử lại.",
+                    ApiErrorCode.Conflict);
+            }
+        }
+
+        // ===== 5. TẠO ĐƠN HÀNG =====
+        try
+        {
+            await _orderRepository.CreateAsync(order);
+        }
+        catch
+        {
+            // Tạo đơn lỗi (vd: trùng orderCode) -> trả lại tồn kho và giải phóng
+            // voucher đã giữ chỗ, để không kẹt voucher vô thời hạn.
+            foreach (var item in selectedItems)
+                await _productRepository.ReleaseStockAsync(item.ProductId, item.Quantity, order.Id);
+
+            if (!string.IsNullOrWhiteSpace(voucher.VoucherId))
+                await _vouchers.ReleaseForOrderAsync(userId, voucher.VoucherId, order.Id);
+
+            throw;
+        }
+
+        // ===== 6. GHI MỐC TIMELINE ĐẦU TIÊN (Task 7) =====
         // Đơn bắt đầu ở AwaitingPayment: sản phẩm đang giữ chỗ chờ khách trả tiền.
         // Lấy tên user để snapshot vào timeline (hiển thị đẹp hơn cho FE).
         var buyer = await _userRepository.GetByIdAsync(userId);
@@ -233,7 +278,10 @@ public class OrderService : IOrderService
         string userId,
         List<CartItem> itemsToBuy,
         Address address,
-        CheckoutRequest request)
+        CheckoutRequest request,
+        decimal discountAmount = 0m,
+        string? voucherId = null,
+        string? voucherCode = null)
     {
         var order = new Order
         {
@@ -290,13 +338,83 @@ public class OrderService : IOrderService
         }
 
         // REWEAR miễn phí vận chuyển toàn bộ: ShippingFee = 0.
-        // Voucher (Task 10) sẽ chèn DiscountAmount vào giữa SubTotal và TotalAmount.
+        // Voucher (Task 10) chèn DiscountAmount vào giữa SubTotal và TotalAmount.
         order.SubTotal = subTotal;
-        order.DiscountAmount = 0m;
+
+        // Discount được tính từ subtotal đọc trước đó. Nếu giá sản phẩm đổi
+        // giữa 2 lần đọc (admin sửa giá lúc checkout) thì subtotal thực tế có
+        // thể nhỏ hơn, và discount có thể lớn hơn subTotal -> TotalAmount âm.
+        // Clamp lại theo subTotal của chính đơn này.
+        decimal appliedDiscount = Math.Min(discountAmount, subTotal);
+
+        order.DiscountAmount = appliedDiscount;
+        order.VoucherId = voucherId;
+        order.VoucherCode = voucherCode;
         order.ShippingFee = 0m;
-        order.TotalAmount = subTotal - order.DiscountAmount + order.ShippingFee;
+        order.TotalAmount = subTotal - appliedDiscount + order.ShippingFee;
 
         return order;
+    }
+
+    /// <summary>
+    /// Tính tổng tiền hàng theo giá hiện tại (Task 5/10).
+    /// </summary>
+    /// <remarks>
+    /// Đọc lại giá sản phẩm thay vì dùng giá snapshot trong giỏ, để voucher
+    /// được tính trên đúng số tiền khách sẽ phải trả.
+    /// </remarks>
+    private async Task<decimal> CalculateSubTotalAsync(List<CartItem> items)
+    {
+        decimal total = 0m;
+        foreach (var item in items)
+        {
+            var product = await _productRepository.GetByIdAsync(item.ProductId);
+            if (product == null) continue;
+            total += product.Price * item.Quantity;
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// Kết quả resolve voucher cho checkout.
+    /// </summary>
+    private readonly record struct VoucherSelection(
+        decimal DiscountAmount, string? VoucherId, string? VoucherCode, string? Error);
+
+    /// <summary>
+    /// Validate + tính discount cho voucher mà khách muốn dùng (Task 10).
+    /// </summary>
+    /// <remarks>
+    /// Validate qua <see cref="IVoucherService"/> (đã check thời hạn, lượt dùng,
+    /// đơn tối thiểu...). Nếu voucher không hợp lệ thì trả lỗi để chặn checkout:
+    /// bỏ qua âm thầm sẽ khiến khách bị tính đủ giá dù họ nghĩ đã được giảm.
+    /// </remarks>
+    private async Task<VoucherSelection> ResolveVoucherAsync(
+        string userId, string? voucherCode, decimal orderTotal)
+    {
+        if (string.IsNullOrWhiteSpace(voucherCode))
+            return new VoucherSelection(0m, null, null, null);
+
+        var applyRequest = new ApplyVoucherRequest
+        {
+            Code = voucherCode.Trim(),
+            OrderTotal = orderTotal
+        };
+
+        var result = await _vouchers.ApplyVoucherAsync(userId, applyRequest);
+        if (!result.Success || result.Data is not ApplyVoucherResponse data)
+        {
+            string message = string.IsNullOrWhiteSpace(result.Message)
+                ? "Mã voucher không hợp lệ."
+                : result.Message;
+            return new VoucherSelection(0m, null, null, message);
+        }
+
+        // Phòng thủ: discount không được vượt quá tổng đơn, nếu không tổng tiền
+        // của đơn sẽ âm và số tiền gửi PayOS cũng âm.
+        decimal discount = Math.Min(data.FinalDiscount, orderTotal);
+
+        return new VoucherSelection(discount, data.VoucherId, data.Code, null);
     }
 
     // ============================================
@@ -403,6 +521,12 @@ public class OrderService : IOrderService
         {
             await _productRepository.ReleaseStockAsync(item.ProductId, item.Quantity, order.Id);
         }
+
+        // Đơn chưa thanh toán nên voucher chỉ mới ở trạng thái giữ chỗ.
+        // Giải phóng để khách dùng lại được; atomic theo orderId nên không
+        // giải phóng nhầm voucher của đơn khác.
+        if (!string.IsNullOrWhiteSpace(order.VoucherId))
+            await _vouchers.ReleaseForOrderAsync(userId, order.VoucherId, order.Id);
 
         order.Status = OrderStatus.Cancelled;
         order.CancelReason = string.IsNullOrWhiteSpace(reason) ? "Người mua hủy đơn." : reason;
@@ -663,6 +787,8 @@ public class OrderService : IOrderService
             TotalQuantity = order.TotalQuantity,
             SubTotal = order.SubTotal,
             DiscountAmount = order.DiscountAmount,
+            VoucherId = order.VoucherId,
+            VoucherCode = order.VoucherCode,
             ShippingFee = order.ShippingFee,
             TotalAmount = order.TotalAmount,
             Status = order.Status.ToString(),

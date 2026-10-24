@@ -21,12 +21,15 @@ public class PaymentService : IPaymentService
     private readonly IPaymentGatewayConfig _config;
     private readonly ILogger<PaymentService> _logger;
     private readonly ILifecycleStore _lifecycle;
+    private readonly IVoucherService _vouchers;
 
     public PaymentService(IPaymentRepository payments, IOrderRepository orders, IOrderStatusHistoryRepository history,
         IProductRepository products, IPayOsService gateway, ICommerceUnitOfWork transactions, ICartRepository carts,
-        IShippingRepository shipping, IPaymentGatewayConfig config, ILogger<PaymentService> logger, ILifecycleStore lifecycle)
+        IShippingRepository shipping, IPaymentGatewayConfig config, ILogger<PaymentService> logger, ILifecycleStore lifecycle,
+        IVoucherService vouchers)
     { _payments = payments; _orders = orders; _history = history; _products = products; _gateway = gateway;
-      _transactions = transactions; _carts = carts; _shipping = shipping; _config = config; _logger = logger; _lifecycle = lifecycle; }
+      _transactions = transactions; _carts = carts; _shipping = shipping; _config = config; _logger = logger; _lifecycle = lifecycle;
+      _vouchers = vouchers; }
 
     public async Task<(ApiResponse Response, CheckoutSessionResponse? Session)> CreateSessionAsync(string orderId, int expirationMinutes = 15)
     {
@@ -166,6 +169,24 @@ public class PaymentService : IPaymentService
             foreach (var item in order.Items)
                 if (await _products.CommitStockAsync(item.ProductId, item.Quantity, order.Id) == 0)
                     throw new InvalidOperationException("Không tìm thấy giữ hàng hợp lệ; giao dịch cần được thử lại/đối soát.");
+
+            // ===== TASK 10: VOUCHER — GHI NHẬN DÙNG THẬT =====
+            // Voucher đã được GIỮ CHỖ (Reserved) lúc tạo đơn. Chỉ khi thanh toán
+            // thành công mới chuyển sang Used và tăng UsedCount. ConsumeForOrderAsync
+            // là atomic + idempotent nên webhook lặp chỉ ghi nhận 1 lần.
+            if (!string.IsNullOrWhiteSpace(order.VoucherId))
+            {
+                bool consumed = await _vouchers.ConsumeForOrderAsync(
+                    order.UserId, order.VoucherId, order.Id);
+                if (!consumed)
+                    _logger.LogWarning(
+                        "Voucher khong the ghi nhan su dung cho don {OrderCode}, voucher={VoucherId}.",
+                        order.OrderCode, order.VoucherId);
+                else
+                    _logger.LogInformation(
+                        "Voucher consumed: don {OrderCode}, voucher={VoucherId}", order.OrderCode, order.VoucherId);
+            }
+
             order.Status = OrderStatus.Confirmed;
             order.PaidAt = payment.PaidAt;
             await _payments.UpdateAsync(payment);
@@ -361,6 +382,21 @@ public class PaymentService : IPaymentService
     private async Task CloseUnpaidAsync(Order order, OrderStatus status, string reason)
     {
         foreach (var item in order.Items) await _products.ReleaseStockAsync(item.ProductId, item.Quantity, order.Id);
+
+        // ===== TASK 10: Giải phóng voucher đã giữ chỗ cho đơn này =====
+        // Đơn này chưa thanh toán nên voucher chỉ mới ở trạng thái Reserved.
+        // TryRelease là atomic theo orderId nên gọi lại nhiều lần cũng không
+        // giải phóng nhầm voucher của đơn khác.
+        if (!string.IsNullOrWhiteSpace(order.VoucherId))
+        {
+            bool released = await _vouchers.ReleaseForOrderAsync(
+                order.UserId, order.VoucherId, order.Id);
+            if (!released)
+                _logger.LogWarning(
+                    "Voucher cua don {OrderCode} khong o trang thai giu cho, bo qua viec giai phong.",
+                    order.OrderCode);
+        }
+
         var from = order.Status; order.Status = status; order.CancelReason = reason; await _orders.UpdateAsync(order);
         await AddHistory(order, from, status, reason);
     }

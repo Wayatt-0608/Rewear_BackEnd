@@ -164,6 +164,67 @@ public class MongoDbContext
                     new CreateIndexOptions { Name = "ix_shippings_status_createdAt" }
                 )
             );
+
+            // ====== TASK 10: VOUCHER ======
+            var vouchersColl = _database.GetCollection<Voucher>("Vouchers");
+
+            // Mã voucher phải unique (case-insensitive sẽ xử lý ở Service).
+            vouchersColl.Indexes.CreateOne(
+                new CreateIndexModel<Voucher>(
+                    Builders<Voucher>.IndexKeys.Ascending(v => v.Code),
+                    new CreateIndexOptions { Unique = true, Name = "ux_vouchers_code" }
+                )
+            );
+
+            // Lọc voucher theo trạng thái active (admin list).
+            vouchersColl.Indexes.CreateOne(
+                new CreateIndexModel<Voucher>(
+                    Builders<Voucher>.IndexKeys
+                        .Ascending(v => v.IsActive)
+                        .Descending(v => v.CreatedAt),
+                    new CreateIndexOptions { Name = "ix_vouchers_isActive_createdAt" }
+                )
+            );
+
+            // Background job: tìm voucher hết hạn.
+            vouchersColl.Indexes.CreateOne(
+                new CreateIndexModel<Voucher>(
+                    Builders<Voucher>.IndexKeys
+                        .Ascending(v => v.IsActive)
+                        .Ascending(v => v.ExpiryDate),
+                    new CreateIndexOptions { Name = "ix_vouchers_isActive_expiryDate" }
+                )
+            );
+
+            var userVouchersColl = _database.GetCollection<UserVoucher>("UserVouchers");
+
+            // Kho voucher của 1 user.
+            userVouchersColl.Indexes.CreateOne(
+                new CreateIndexModel<UserVoucher>(
+                    Builders<UserVoucher>.IndexKeys
+                        .Ascending(uv => uv.UserId)
+                        .Descending(uv => uv.GrantedAt),
+                    new CreateIndexOptions { Name = "ix_userVouchers_userId_grantedAt" }
+                )
+            );
+
+            // Tra cứu nhanh UserVoucher theo (user, voucher) - 1 user chỉ có 1 record / voucher.
+            userVouchersColl.Indexes.CreateOne(
+                new CreateIndexModel<UserVoucher>(
+                    Builders<UserVoucher>.IndexKeys
+                        .Ascending(uv => uv.UserId)
+                        .Ascending(uv => uv.VoucherId),
+                    new CreateIndexOptions { Unique = true, Name = "ux_userVouchers_userId_voucherId" }
+                )
+            );
+
+            // Stats: lấy tất cả UserVoucher của 1 voucher.
+            userVouchersColl.Indexes.CreateOne(
+                new CreateIndexModel<UserVoucher>(
+                    Builders<UserVoucher>.IndexKeys.Ascending(uv => uv.VoucherId),
+                    new CreateIndexOptions { Name = "ix_userVouchers_voucherId" }
+                )
+            );
         }
         catch (MongoWriteException)
         {
@@ -207,4 +268,11 @@ public class MongoDbContext
 
     public TransactionalCollection<SourcingRequest> SourcingRequests =>
         Collection<SourcingRequest>("SourcingRequests");
+
+    // ====== TASK 10: VOUCHER ======
+    public TransactionalCollection<Voucher> Vouchers =>
+        Collection<Voucher>("Vouchers");
+
+    public TransactionalCollection<UserVoucher> UserVouchers =>
+        Collection<UserVoucher>("UserVouchers");
 }

@@ -27,6 +27,12 @@ public class CheckoutRequest
     /// Ghi chú cho đơn hàng (vd: "Gọi trước khi giao").
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Mã voucher muốn áp dụng (Task 10). Tùy chọn - nếu null/empty thì không dùng voucher.
+    /// Mã sẽ được validate lại ở server trước khi lưu vào Order.
+    /// </summary>
+    public string? VoucherCode { get; set; }
 }
 
 /// <summary>

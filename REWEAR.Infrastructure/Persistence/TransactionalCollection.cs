@@ -23,4 +23,10 @@ public sealed class TransactionalCollection<T>
     public Task<DeleteResult> DeleteOneAsync(Expression<Func<T, bool>> filter) => _session() is { } s ? _collection.DeleteOneAsync(s, filter) : _collection.DeleteOneAsync(filter);
     public Task<long> CountDocumentsAsync(Expression<Func<T, bool>> filter) => CountDocumentsAsync(new ExpressionFilterDefinition<T>(filter));
     public Task<long> CountDocumentsAsync(FilterDefinition<T> filter) => _session() is { } s ? _collection.CountDocumentsAsync(s, filter) : _collection.CountDocumentsAsync(filter);
+    public Task InsertManyAsync(IEnumerable<T> values, InsertManyOptions? options = null) => _session() is { } s ? _collection.InsertManyAsync(s, values, options) : _collection.InsertManyAsync(values, options);
+    public async Task<T?> FindOneAndUpdateAsync(FilterDefinition<T> filter, UpdateDefinition<T> update, FindOneAndUpdateOptions<T> options)
+        => _session() is { } s
+            ? await _collection.FindOneAndUpdateAsync(s, filter, update, options)
+            : await _collection.FindOneAndUpdateAsync(filter, update, options);
 }
+

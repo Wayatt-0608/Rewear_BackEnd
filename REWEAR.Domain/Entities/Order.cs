@@ -97,10 +97,27 @@ public class Order
     public decimal SubTotal { get; set; }
 
     /// <summary>
-    /// Số tiền giảm sau voucher (Task 10). Hiện luôn = 0.
+    /// Số tiền giảm sau voucher (Task 10). Bằng 0 nếu đơn không dùng voucher.
     /// </summary>
     [BsonElement("discountAmount")]
     public decimal DiscountAmount { get; set; }
+
+    /// <summary>
+    /// Id voucher đã áp dụng (Task 10). Null nếu đơn không dùng voucher.
+    /// Lưu Id thay vì snapshot toàn bộ Voucher để tra cứu lại khi cần.
+    /// </summary>
+    [BsonElement("voucherId")]
+    [BsonIgnoreIfNull]
+    public string? VoucherId { get; set; }
+
+    /// <summary>
+    /// Mã voucher đã áp dụng (snapshot tại thời điểm đặt hàng, Task 10).
+    /// Lưu mã để hiển thị trong lịch sử đơn hàng dù voucher sau này bị xóa/sửa.
+    /// Null nếu đơn không dùng voucher.
+    /// </summary>
+    [BsonElement("voucherCode")]
+    [BsonIgnoreIfNull]
+    public string? VoucherCode { get; set; }
 
     /// <summary>
     /// Phí vận chuyển (Task 9). REWEAR miễn phí vận chuyển toàn bộ nên luôn = 0,
