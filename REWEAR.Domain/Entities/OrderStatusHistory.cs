@@ -12,6 +12,12 @@ namespace REWEAR.Domain.Entities;
 [BsonIgnoreExtraElements]
 public class OrderStatusHistory
 {
+    public string? EventType { get; set; }
+    public string? ShipmentId { get; set; }
+    public string? AssignedShipperId { get; set; }
+    public string? FromShippingStatus { get; set; }
+    public string? ToShippingStatus { get; set; }
+    public string? CustomerMessage { get; set; }
     /// <summary>Khóa chính của mốc lịch sử.</summary>
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]

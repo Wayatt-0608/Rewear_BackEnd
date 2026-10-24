@@ -218,7 +218,7 @@ public class SourcingController : ControllerBase
     {
         try
         {
-            var result = await _sourcingService.OfferPriceAsync(id, request);
+            var result = await _sourcingService.OfferPriceAsync(id, request, User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "");
             if (result == null)
                 return NotFound(new { message = "Không tìm thấy sourcing request." });
 
@@ -264,7 +264,7 @@ public class SourcingController : ControllerBase
     /// </summary>
     [HttpPatch("{id}/accept")]
     [Authorize]
-    public async Task<IActionResult> AcceptOffer(string id)
+    public async Task<IActionResult> AcceptOffer(string id, [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] AcceptSourcingOfferRequest? request = null)
     {
         try
         {
@@ -272,7 +272,7 @@ public class SourcingController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(new { message = "Không xác định được người dùng." });
 
-            var result = await _sourcingService.AcceptOfferAsync(id, userId);
+            var result = await _sourcingService.AcceptOfferAsync(id, userId, request?.OfferVersion);
             if (result == null)
                 return NotFound(new { message = "Không tìm thấy sourcing request." });
 
@@ -326,7 +326,7 @@ public class SourcingController : ControllerBase
     {
         try
         {
-            var result = await _sourcingService.MarkReceivedAsync(id);
+            var result = await _sourcingService.MarkReceivedAsync(id, User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "");
             if (result == null)
                 return NotFound(new { message = "Không tìm thấy sourcing request." });
 
@@ -347,7 +347,7 @@ public class SourcingController : ControllerBase
     {
         try
         {
-            var result = await _sourcingService.InspectAsync(id, request);
+            var result = await _sourcingService.InspectAsync(id, request, User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "");
             if (result == null)
                 return NotFound(new { message = "Không tìm thấy sourcing request." });
 
@@ -368,7 +368,7 @@ public class SourcingController : ControllerBase
     {
         try
         {
-            var result = await _sourcingService.ConvertToProductAsync(id, request);
+            var result = await _sourcingService.ConvertToProductAsync(id, request, User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "");
             if (result == null)
                 return NotFound(new { message = "Không tìm thấy sourcing request." });
 

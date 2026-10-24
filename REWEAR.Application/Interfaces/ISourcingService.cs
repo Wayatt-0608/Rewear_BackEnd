@@ -37,7 +37,7 @@ public interface ISourcingService
     /// <summary>
     /// Staff/Admin: Định giá.
     /// </summary>
-    Task<SourcingResponse?> OfferPriceAsync(string id, OfferSourcingRequest request);
+    Task<SourcingResponse?> OfferPriceAsync(string id, OfferSourcingRequest request, string actorId = "");
 
     /// <summary>
     /// Staff/Admin: Từ chối.
@@ -47,7 +47,7 @@ public interface ISourcingService
     /// <summary>
     /// Customer: Đồng ý giá.
     /// </summary>
-    Task<SourcingResponse?> AcceptOfferAsync(string id, string userId);
+    Task<SourcingResponse?> AcceptOfferAsync(string id, string userId, int? offerVersion = null);
 
     /// <summary>
     /// Customer: Từ chối giá.
@@ -57,15 +57,15 @@ public interface ISourcingService
     /// <summary>
     /// Staff/Admin: Đánh dấu đã nhận hàng.
     /// </summary>
-    Task<SourcingResponse?> MarkReceivedAsync(string id);
+    Task<SourcingResponse?> MarkReceivedAsync(string id, string actorId = "");
 
     /// <summary>
     /// Staff/Admin: Kiểm định và chấp nhận.
     /// </summary>
-    Task<SourcingResponse?> InspectAsync(string id, InspectSourcingRequest request);
+    Task<SourcingResponse?> InspectAsync(string id, InspectSourcingRequest request, string actorId = "");
 
     /// <summary>
     /// Staff/Admin: Convert sang Product.
     /// </summary>
-    Task<SourcingResponse?> ConvertToProductAsync(string id, ConvertToProductRequest request);
+    Task<SourcingResponse?> ConvertToProductAsync(string id, ConvertToProductRequest request, string actorId = "");
 }

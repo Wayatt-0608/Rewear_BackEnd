@@ -10,12 +10,16 @@ namespace REWEAR.Application.Services;
 /// </summary>
 public class OrderService : IOrderService
 {
+    private readonly ICommerceUnitOfWork _transactions;
+    private readonly CommerceOptions _options;
+    private readonly IPaymentRepository _payments;
     private readonly IOrderRepository _orderRepository;
     private readonly ICartRepository _cartRepository;
     private readonly IProductRepository _productRepository;
     private readonly IAddressRepository _addressRepository;
     private readonly IOrderStatusHistoryRepository _historyRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IShippingService _shippingService;
 
     public OrderService(
         IOrderRepository orderRepository,
@@ -23,8 +27,12 @@ public class OrderService : IOrderService
         IProductRepository productRepository,
         IAddressRepository addressRepository,
         IOrderStatusHistoryRepository historyRepository,
-        IUserRepository userRepository)
+        IUserRepository userRepository, ICommerceUnitOfWork transactions, CommerceOptions options, IPaymentRepository payments, IShippingService shippingService)
     {
+        _transactions = transactions;
+        _options = options;
+        _payments = payments;
+        _shippingService = shippingService;
         _orderRepository = orderRepository;
         _cartRepository = cartRepository;
         _productRepository = productRepository;
@@ -47,6 +55,20 @@ public class OrderService : IOrderService
     /// </remarks>
     public async Task<ApiResponse> CheckoutAsync(string userId, CheckoutRequest request)
     {
+        try { return await _transactions.ExecuteAsync(() => CheckoutCoreAsync(userId, request)); }
+        catch (CommerceConflictException ex) { return Fail(ex.Message, ApiErrorCode.Conflict); }
+    }
+
+    private async Task<ApiResponse> CheckoutCoreAsync(string userId, CheckoutRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || !Enum.IsDefined(request.ShippingMethod)) return Fail("Thông tin đặt hàng không hợp lệ.");
+        if (request.IdempotencyKey?.Length > 100) return Fail("Mã yêu cầu không hợp lệ.");
+        var pendingOrders = await _orderRepository.GetByUserIdAsync(userId, OrderStatus.AwaitingPayment);
+        if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            var duplicate = pendingOrders.FirstOrDefault(o => o.CheckoutKey == request.IdempotencyKey);
+            if (duplicate != null) return new ApiResponse { Success = true, Data = await BuildOrderResponseAsync(duplicate), Message = "Tiếp tục đơn đang chờ thanh toán." };
+        }
         // ===== 1. VALIDATE ĐỊA CHỈ GIAO HÀNG =====
         if (string.IsNullOrWhiteSpace(request.ShippingAddressId))
             return Fail("Vui lòng chọn địa chỉ giao hàng.", ApiErrorCode.Validation);
@@ -68,6 +90,10 @@ public class OrderService : IOrderService
         if (selectedItems.Count == 0)
             return Fail("Chưa chọn sản phẩm nào để thanh toán.", ApiErrorCode.Validation);
 
+        var key = request.IdempotencyKey ?? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(request.ShippingAddressId + ":" + request.ShippingMethod + ":" + string.Join(";", selectedItems.OrderBy(i => i.Id).Select(i => i.Id + ":" + i.Quantity)))));
+        var previous = pendingOrders.FirstOrDefault(o => o.CheckoutKey == key);
+        if (previous != null) return new ApiResponse { Success = true, Data = await BuildOrderResponseAsync(previous), Message = "Tiếp tục đơn đang chờ thanh toán." };
         var validation = await ValidateCartAsync(selectedItems);
         if (!validation.IsValid)
         {
@@ -89,48 +115,23 @@ public class OrderService : IOrderService
         // ===== 3. CHỐT TỒN KHO (INVENTORY CHECK) =====
         // Dùng atomic update từng sản phẩm. Nếu 1 sản phẩm bị người khác mua trước
         // thì phải trả lại các sản phẩm đã chốt trước đó (rollback).
+        var order = await BuildOrder(userId, selectedItems, address, request);
+        order.CheckoutKey = key;
+        order.SelectedCartItemIds = selectedItems.Select(i => i.Id).ToList();
+        order.ReservationExpiresAt = DateTime.UtcNow.AddMinutes(_options.ReservationMinutes);
         var reservedProductIds = new List<string>();
 
         foreach (var item in selectedItems)
         {
-            long reserved = await _productRepository.TryReserveStockAsync(item.ProductId, item.Quantity);
+            long reserved = await _productRepository.TryReserveStockAsync(item.ProductId, item.Quantity, order.Id, order.ReservationExpiresAt.Value);
 
-            if (reserved == 0)
-            {
-                // Rollback: trả lại những gì đã chốt trong lượt này.
-                await RollbackReservedStockAsync(selectedItems, reservedProductIds);
-
-                return new ApiResponse
-                {
-                    Success = false,
-                    Message = "Sản phẩm vừa được người khác mua. Vui lòng kiểm tra lại giỏ hàng.",
-                    ErrorCode = ApiErrorCode.Conflict,
-                    Data = new CheckoutErrorResponse
-                    {
-                        Message = "Sản phẩm vừa được người khác mua. Vui lòng kiểm tra lại giỏ hàng.",
-                        ProductId = item.ProductId,
-                        ErrorCode = "PRODUCT_UNAVAILABLE"
-                    }
-                };
-            }
+            if (reserved == 0) throw new CommerceConflictException("Sản phẩm vừa được người khác giữ. Vui lòng kiểm tra lại giỏ hàng.");
 
             reservedProductIds.Add(item.ProductId);
         }
 
         // ===== 4. TẠO ĐƠN HÀNG =====
-        Order order;
-
-        try
-        {
-            order = await BuildOrder(userId, selectedItems, address, request);
-            await _orderRepository.CreateAsync(order);
-        }
-        catch
-        {
-            // Tạo đơn lỗi (vd: trùng orderCode) -> trả lại tồn kho, không mất sản phẩm.
-            await RollbackReservedStockAsync(selectedItems, reservedProductIds);
-            throw;
-        }
+        await _orderRepository.CreateAsync(order);
 
         // ===== 5. GHI MỐC TIMELINE ĐẦU TIÊN (Task 7) =====
         // Đơn bắt đầu ở AwaitingPayment: sản phẩm đang giữ chỗ chờ khách trả tiền.
@@ -147,14 +148,7 @@ public class OrderService : IOrderService
             ChangedByName = buyer?.FullName
         });
 
-        // ===== 6. XÓA KHỎI GIỎ CHỈ NHÓM ĐÃ MUA =====
-        // Giữ nguyên các món chưa tick (user mua sau) và giữ nguyên trạng thái tick
-        // của chúng. Chỉ xóa đúng nhóm vừa tạo đơn.
-        var purchasedItemIds = selectedItems.Select(i => i.Id).ToHashSet();
-        cart.Items.RemoveAll(i => purchasedItemIds.Contains(i.Id));
-        cart.UpdatedAt = DateTime.UtcNow;
-        cart.ExpiresAt = DateTime.UtcNow.AddDays(Cart.EXPIRATION_DAYS);
-        await _cartRepository.UpdateAsync(cart);
+        // Keep selected cart lines until the payment link is durably saved.
 
         // ===== 7. TRẢ KẾT QUẢ =====
         var response = await BuildOrderResponseAsync(order);
@@ -201,6 +195,9 @@ public class OrderService : IOrderService
                 continue;
             }
 
+            if (product.Price <= 0 || decimal.Truncate(product.Price) != product.Price) { result.Errors.Add("Giá sản phẩm phải là số nguyên VND lớn hơn 0."); continue; }
+            if ((product.IsUnique ?? product.StockQuantity <= 1) && item.Quantity != 1) { result.Errors.Add("Sản phẩm độc bản chỉ được mua một món."); continue; }
+
             // Không đủ tồn kho
             if (product.StockQuantity < item.Quantity)
             {
@@ -229,17 +226,6 @@ public class OrderService : IOrderService
     /// <summary>
     /// Trả lại tồn kho cho các sản phẩm đã chốt nhưng đơn hàng chưa tạo được.
     /// </summary>
-    private async Task RollbackReservedStockAsync(List<CartItem> cartItems, List<string> reservedProductIds)
-    {
-        foreach (var productId in reservedProductIds)
-        {
-            var item = cartItems.FirstOrDefault(i => i.ProductId == productId);
-            int quantity = item?.Quantity ?? 1;
-
-            await _productRepository.ReleaseStockAsync(productId, quantity);
-        }
-    }
-
     /// <summary>
     /// Dựng đơn hàng từ giỏ + địa chỉ, snapshot toàn bộ thông tin cần thiết.
     /// </summary>
@@ -267,6 +253,7 @@ public class OrderService : IOrderService
                 : request.Note,
 
             // REWEAR chỉ có một phương thức thanh toán: trả tiền trước qua PayOS.
+            ShippingMethod = request.ShippingMethod,
             PaymentMethod = PaymentMethod.PayOs,
             Status = OrderStatus.AwaitingPayment
         };
@@ -287,6 +274,10 @@ public class OrderService : IOrderService
                 ProductId = product.Id,
                 Quantity = item.Quantity,
                 UnitPrice = unitPrice,
+                AcquisitionCost = product.AcquisitionCost,
+                ProductionCost = product.ProductionCost,
+                HasCostBasis = product.HasCostBasis,
+                UpcyclingProjectId = product.UpcyclingProjectId,
                 ProductTitle = product.Title,
                 ProductSlug = product.Slug,
                 ProductImageUrl = product.ImageUrls.FirstOrDefault(),
@@ -379,7 +370,9 @@ public class OrderService : IOrderService
     /// PayOS trước, việc đó thuộc <see cref="IPaymentService.RefundAsync"/> vì cần gọi
     /// API bên ngoài và có thể thất bại giữa chừng.
     /// </remarks>
-    public async Task<ApiResponse> CancelOrderAsync(string userId, string orderId, string? reason)
+    public Task<ApiResponse> CancelOrderAsync(string userId, string orderId, string? reason) => _transactions.ExecuteAsync(() => CancelCoreAsync(userId, orderId, reason));
+
+    private async Task<ApiResponse> CancelCoreAsync(string userId, string orderId, string? reason)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
         if (order == null || order.UserId != userId)
@@ -401,10 +394,14 @@ public class OrderService : IOrderService
             };
         }
 
+        var pendingPayment = await _payments.GetLatestByOrderIdAsync(orderId);
+        if (pendingPayment?.Status == PaymentStatus.Paid) return Fail("Đơn đã nhận tiền; cần xử lý hoàn tiền.", ApiErrorCode.Conflict);
+        if (pendingPayment?.Status == PaymentStatus.Pending) { pendingPayment.Status = PaymentStatus.Failed; pendingPayment.Note = reason; await _payments.UpdateAsync(pendingPayment); }
+
         // Trả lại tồn kho cho từng sản phẩm trong đơn.
         foreach (var item in order.Items)
         {
-            await _productRepository.ReleaseStockAsync(item.ProductId, item.Quantity);
+            await _productRepository.ReleaseStockAsync(item.ProductId, item.Quantity, order.Id);
         }
 
         order.Status = OrderStatus.Cancelled;
@@ -447,7 +444,12 @@ public class OrderService : IOrderService
     /// Cập nhật trạng thái đơn và ghi vào timeline.
     /// Chỉ cho phép chuyển trạng thái đi đúng 1 chiều theo sơ đồ bên dưới.
     /// </summary>
-    public async Task<ApiResponse> UpdateStatusAsync(
+    public Task<ApiResponse> UpdateStatusAsync(
+        string orderId, OrderStatus newStatus, string? note, string? trackingNumber, DateTime? estimatedDeliveryDate,
+        OrderStatusChangedBy changedBy, string? changedByUserId, string? changedByName) => _transactions.ExecuteAsync(() =>
+            UpdateStatusCoreAsync(orderId, newStatus, note, trackingNumber, estimatedDeliveryDate, changedBy, changedByUserId, changedByName));
+
+    private async Task<ApiResponse> UpdateStatusCoreAsync(
         string orderId, OrderStatus newStatus, string? note,
         string? trackingNumber, DateTime? estimatedDeliveryDate,
         OrderStatusChangedBy changedBy, string? changedByUserId, string? changedByName)
@@ -467,6 +469,10 @@ public class OrderService : IOrderService
                 $"Không thể chuyển đơn từ \"{order.Status}\" sang \"{newStatus}\".",
                 ApiErrorCode.Conflict);
         }
+
+        if (newStatus == OrderStatus.Confirmed && (await _payments.GetLatestByOrderIdAsync(orderId))?.Status != PaymentStatus.Paid)
+            return Fail("Đơn chưa được xác nhận thanh toán.", ApiErrorCode.Conflict);
+        if (newStatus == OrderStatus.Cancelled) return Fail("Hãy sử dụng quy trình hủy và hoàn tiền.", ApiErrorCode.Conflict);
 
         // Chuyển sang Shipping thì bắt buộc có mã vận đơn để khách tra cứu được.
         if (newStatus == OrderStatus.Shipping && string.IsNullOrWhiteSpace(trackingNumber))
@@ -490,7 +496,7 @@ public class OrderService : IOrderService
         {
             foreach (var item in order.Items)
             {
-                await _productRepository.CommitStockAsync(item.ProductId, item.Quantity);
+                await _productRepository.CommitStockAsync(item.ProductId, item.Quantity, order.Id);
             }
         }
 
@@ -545,7 +551,9 @@ public class OrderService : IOrderService
     /// <summary>
     /// Lấy thông tin theo dõi đơn (mã vận đơn + timeline) cho người mua.
     /// </summary>
-    public async Task<OrderTrackingResponse?> GetTrackingAsync(string userId, string orderId)
+    public Task<OrderTrackingResponse?> GetTrackingAsync(string userId, string orderId) => _transactions.ExecuteAsync(() => GetTrackingCoreAsync(userId, orderId));
+
+    private async Task<OrderTrackingResponse?> GetTrackingCoreAsync(string userId, string orderId)
     {
         var order = await _orderRepository.GetByIdAsync(orderId);
 
@@ -557,16 +565,13 @@ public class OrderService : IOrderService
 
         // Trạng thái thanh toán suy ra từ trạng thái đơn: chỉ Confirmed trở đi
         // mới chắc chắn đã thu tiền.
-        string paymentStatus = order.Status switch
-        {
-            OrderStatus.AwaitingPayment => "Pending",
-            OrderStatus.PaymentExpired => "Expired",
-            OrderStatus.Cancelled => "Pending",
-            _ => "Paid"
-        };
+        string paymentStatus = await PaymentStateAsync(order.Id);
 
         return new OrderTrackingResponse
         {
+            Order = await BuildOrderResponseAsync(order),
+            Shipping = await _shippingService.GetByOrderIdAsync(order.Id, userId),
+            DeliveryHistory = histories.Select(h => DeliveryHistoryMapping.Map(h, false)).OfType<DeliveryHistoryEvent>().ToList(),
             OrderId = order.Id,
             OrderCode = order.OrderCode,
             CurrentStatus = order.Status.ToString(),
@@ -578,11 +583,11 @@ public class OrderService : IOrderService
                 Id = h.Id,
                 FromStatus = h.FromStatus?.ToString(),
                 ToStatus = h.ToStatus.ToString(),
-                Note = h.Note,
+                Note = DeliveryHistoryMapping.Map(h, false)?.Label,
                 ChangedBy = h.ChangedBy.ToString(),
-                ChangedByUserId = h.ChangedByUserId,
-                ChangedByName = h.ChangedByName,
-                CreatedAt = h.CreatedAt
+                ChangedByUserId = null,
+                ChangedByName = null,
+                CreatedAt = h.CreatedAt == DateTime.MinValue ? null : h.CreatedAt
             }).ToList()
         };
     }
@@ -594,8 +599,21 @@ public class OrderService : IOrderService
     /// <summary>
     /// Chuyển entity Order sang DTO trả về cho frontend.
     /// </summary>
+    public async Task<OrderResponse?> GetOperationalDetailAsync(string orderId)
+    {
+        var order = await _orderRepository.GetByIdAsync(orderId);
+        return order == null ? null : await BuildOrderResponseAsync(order);
+    }
+
+    private async Task<string> PaymentStateAsync(string orderId)
+    {
+        var payment = await _payments.GetLatestByOrderIdAsync(orderId);
+        return payment?.RequiresReconciliation == true ? "ReconciliationRequired" : payment?.Status.ToString() ?? "Pending";
+    }
+
     private async Task<OrderResponse> BuildOrderResponseAsync(Order order)
     {
+        var shipment = await _shippingService.GetByOrderIdAsync(order.Id, order.UserId);
         var itemResponses = new List<OrderItemResponse>();
 
         foreach (var item in order.Items)
@@ -623,6 +641,9 @@ public class OrderService : IOrderService
 
         return new OrderResponse
         {
+            PaymentStatus = await PaymentStateAsync(order.Id), ShippingStatus = shipment?.Status, ShipperName = shipment?.ShipperName,
+            ShippingMethod = order.ShippingMethod.ToString(),
+            ReservationExpiresAt = order.ReservationExpiresAt,
             Id = order.Id,
             OrderCode = order.OrderCode,
             UserId = order.UserId,

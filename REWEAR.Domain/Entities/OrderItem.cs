@@ -9,6 +9,11 @@ namespace REWEAR.Domain.Entities;
 /// </summary>
 public class OrderItem
 {
+    // Immutable financial cost basis. Older orders remain explicitly unknown.
+    public decimal AcquisitionCost { get; set; }
+    public decimal ProductionCost { get; set; }
+    public bool HasCostBasis { get; set; }
+    public string? UpcyclingProjectId { get; set; }
     /// <summary>
     /// Khóa của dòng đơn hàng.
     /// </summary>

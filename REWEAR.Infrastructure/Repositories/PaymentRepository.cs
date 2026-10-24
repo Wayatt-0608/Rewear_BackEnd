@@ -11,7 +11,11 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class PaymentRepository : IPaymentRepository
 {
-    private readonly IMongoCollection<Payment> _payments;
+    public Task<List<Payment>> GetReconciliationCandidatesAsync(DateTime createdAfter, DateTime checkedBefore, int limit) => _payments
+        .Find(p => p.CreatedAt >= createdAfter && p.Status != PaymentStatus.Paid && p.Status != PaymentStatus.Refunded
+            && (p.LastGatewayCheckedAt == null || p.LastGatewayCheckedAt < checkedBefore))
+        .SortBy(p => p.LastGatewayCheckedAt).Limit(Math.Clamp(limit, 1, 100)).ToListAsync();
+    private readonly TransactionalCollection<Payment> _payments;
 
     public PaymentRepository(MongoDbContext context)
     {

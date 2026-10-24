@@ -11,7 +11,7 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class ShippingRepository : IShippingRepository
 {
-    private readonly IMongoCollection<Shipping> _shippings;
+    private readonly TransactionalCollection<Shipping> _shippings;
 
     public ShippingRepository(MongoDbContext context)
     {

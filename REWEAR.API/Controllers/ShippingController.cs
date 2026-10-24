@@ -11,6 +11,7 @@ namespace REWEAR.API.Controllers;
 [ApiController]
 [Route("api/shipping")]
 [Authorize]
+[TypeFilter(typeof(REWEAR.API.Filters.ObjectIdRouteFilter))]
 public class ShippingController : ControllerBase
 {
     private readonly IShippingService _shippingService;
@@ -100,7 +101,7 @@ public class ShippingController : ControllerBase
         [FromQuery] ShippingMethod method = ShippingMethod.Standard,
         [FromQuery] string? carrier = null)
     {
-        var result = await _shippingService.CreateShippingAsync(orderId, shipperId, method, carrier);
+        var result = await _shippingService.CreateShippingAsync(orderId, shipperId, method, carrier, GetUserId());
 
         if (!result.Success)
         {
@@ -123,7 +124,7 @@ public class ShippingController : ControllerBase
     /// <param name="orderId">Id của đơn hàng cần cập nhật.</param>
     /// <param name="request">Đơn vị vận chuyển, mã vận đơn, ngày dự kiến giao và ghi chú.</param>
     [HttpPut("{orderId}")]
-    [Authorize(Policy = "ShippingOrAdmin")]
+    [Authorize(Policy = "StaffOrAdmin")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -152,7 +153,7 @@ public class ShippingController : ControllerBase
     /// <param name="orderId">Id đơn hàng.</param>
     /// <param name="request">Mã trạng thái mới (theo ShippingStatus) + note + trackingNumber + attemptCount.</param>
     [HttpPut("{orderId}/status")]
-    [Authorize(Policy = "ShippingOrAdmin")]
+    [Authorize(Roles = "Shipper")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -222,7 +223,7 @@ public class ShippingController : ControllerBase
     /// </summary>
     /// <param name="status">Lọc theo trạng thái. Null = tất cả.</param>
     [HttpGet("all")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "StaffOrAdmin")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse>> GetAll(
         [FromQuery] ShippingStatus? status = null)

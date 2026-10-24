@@ -8,6 +8,7 @@ namespace REWEAR.Application.Interfaces;
 /// </summary>
 public interface IProductRepository
 {
+    Task<bool> HasActiveAllocationAsync(string productId);
     /// <summary>
     /// Lấy tất cả sản phẩm.
     /// </summary>
@@ -50,21 +51,23 @@ public interface IProductRepository
     /// Dùng cho bước Checkout (Task 5) để tránh 2 người cùng mua 1 món.
     /// </summary>
     /// <returns>Số document được update (0 = đã có người khác mua trước / hết hàng).</returns>
-    Task<long> TryReserveStockAsync(string productId, int quantity);
+    Task<long> TryReserveStockAsync(string productId, int quantity, string orderId, DateTime expiresAt);
 
     /// <summary>
     /// Trả lại N món về kho khi checkout thất bại hoặc đơn bị hủy.
     /// Chuyển status Sold về Available nếu hết lý do bị bán.
     /// </summary>
     /// <returns>Số document được update.</returns>
-    Task<long> ReleaseStockAsync(string productId, int quantity);
+    Task<long> ReleaseStockAsync(string productId, int quantity, string orderId);
 
     /// <summary>
     /// Hoàn tất bán: ghi nhận đã bán N món (trừ tồn, chuyển status sang Sold nếu hết hàng).
     /// Dùng khi đơn chuyển sang Confirmed / Delivered.
     /// </summary>
     /// <returns>Số document được update.</returns>
-    Task<long> CommitStockAsync(string productId, int quantity);
+    Task<long> CommitStockAsync(string productId, int quantity, string orderId);
+
+    Task<long> RestorePaidStockAsync(string productId, int quantity, string orderId);
 
     /// <summary>
     /// Kiểm tra xem URL ảnh có đang được sử dụng bởi sản phẩm khác không.

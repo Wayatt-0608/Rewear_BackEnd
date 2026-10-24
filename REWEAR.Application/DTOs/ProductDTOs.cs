@@ -131,6 +131,9 @@ public class UpdateProductStatusRequest
 /// </summary>
 public class ProductResponse
 {
+    public string ProductType { get; set; } = "SecondHand";
+    public string? UpcyclingProjectId { get; set; }
+    public bool IsUnique { get; set; }
     public string Id { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;

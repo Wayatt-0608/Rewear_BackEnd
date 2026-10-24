@@ -24,7 +24,7 @@ public interface IShippingService
         string orderId,
         string? shipperId,
         ShippingMethod method,
-        string? carrier);
+        string? carrier, string? actorId = null);
 
     /// <summary>
     /// Cập nhật vận chuyển: bàn giao cho đơn vị vận chuyển hoặc đánh dấu giao xong.

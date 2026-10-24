@@ -62,16 +62,14 @@ public class EmailService : IEmailService
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
 
-            _logger.LogInformation("OTP email sent to {Email} with code {Code}", toEmail, otpCode);
-            Console.WriteLine($"[EmailService] Email sent successfully to {toEmail}");
+            _logger.LogInformation("Đã gửi email xác thực; không ghi OTP hoặc địa chỉ email vào log.");
 
             return await Task.FromResult(true);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send OTP email to {Email}", toEmail);
-            Console.WriteLine($"[EmailService] Failed to send email: {ex.Message}");
-            return await Task.FromResult(true);
+            _logger.LogWarning("Không gửi được email xác thực ({Type}).", ex.GetType().Name);
+            return false;
         }
     }
 

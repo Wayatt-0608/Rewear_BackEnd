@@ -80,6 +80,8 @@ public class PaymentResponse
 /// </summary>
 public class PaymentStatusResponse
 {
+    public bool RequiresReconciliation { get; set; }
+    public string? RefundState { get; set; }
     public string OrderId { get; set; } = string.Empty;
     public string OrderCode { get; set; } = string.Empty;
 

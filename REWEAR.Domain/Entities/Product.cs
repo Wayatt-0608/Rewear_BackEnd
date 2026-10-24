@@ -16,6 +16,18 @@ namespace REWEAR.Domain.Entities;
 [BsonIgnoreExtraElements]
 public class Product
 {
+    // Nullable preserves existing records: legacy listings infer uniqueness from stock before first reservation.
+    [BsonElement("isUnique")]
+    public bool? IsUnique { get; set; }
+    public int Version { get; set; }
+    public string ProductType { get; set; } = "SecondHand";
+    public string? SourceSourcingId { get; set; }
+    public string? UpcyclingProjectId { get; set; }
+    public decimal AcquisitionCost { get; set; }
+    public decimal ProductionCost { get; set; }
+    public bool HasCostBasis { get; set; }
+    public List<string> SourceInventoryIds { get; set; } = new();
+
     /// <summary>
     /// Khóa chính của sản phẩm.
     /// </summary>
@@ -66,7 +78,7 @@ public class Product
     /// = 1 với hầu hết sản phẩm đơn lẻ.
     /// </summary>
     [BsonElement("stockQuantity")]
-    public int StockQuantity { get; set; } = 1;
+    public int StockQuantity { get; set; }
 
     /// <summary>
     /// Tình trạng sản phẩm secondhand.

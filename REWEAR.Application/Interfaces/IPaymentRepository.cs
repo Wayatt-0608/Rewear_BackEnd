@@ -8,6 +8,7 @@ namespace REWEAR.Application.Interfaces;
 /// </summary>
 public interface IPaymentRepository
 {
+    Task<List<Payment>> GetReconciliationCandidatesAsync(DateTime createdAfter, DateTime checkedBefore, int limit);
     /// <summary>Tạo bản ghi thanh toán mới (mỗi lần tạo phiên thanh toán là 1 record).</summary>
     Task CreateAsync(Payment payment);
 

@@ -59,6 +59,12 @@ public class OrderShippingAddressResponse
 /// </summary>
 public class OrderResponse
 {
+    public string? ShippingStatus { get; set; }
+    public string? ShipperName { get; set; }
+    public string? PaymentStatus { get; set; }
+    public string ShippingMethod { get; set; } = string.Empty;
+    public DateTime? ReservationExpiresAt { get; set; }
+
     public string Id { get; set; } = string.Empty;
 
     /// <summary>Mã đơn hiển thị cho người dùng (vd: RW-20261005-A1B2C3).</summary>
@@ -165,7 +171,7 @@ public class OrderStatusHistoryResponse
     /// <summary>Tên người thao tác tại thời điểm đổi (snapshot, FE dùng để hiển thị).</summary>
     public string? ChangedByName { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    public DateTime? CreatedAt { get; set; }
 }
 
 /// <summary>
@@ -173,6 +179,9 @@ public class OrderStatusHistoryResponse
 /// </summary>
 public class OrderTrackingResponse
 {
+    public OrderResponse? Order { get; set; }
+    public ShippingResponse? Shipping { get; set; }
+    public List<DeliveryHistoryEvent> DeliveryHistory { get; set; } = new();
     public string OrderId { get; set; } = string.Empty;
     public string OrderCode { get; set; } = string.Empty;
 

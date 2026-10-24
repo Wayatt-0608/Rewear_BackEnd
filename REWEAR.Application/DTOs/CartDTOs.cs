@@ -65,6 +65,7 @@ public class SelectAllCartItemsRequest
 /// </summary>
 public class CartItemResponse
 {
+    public bool IsUnique { get; set; }
     /// <summary>
     /// Khóa dòng giỏ (dùng cho PUT/DELETE theo id).
     /// </summary>

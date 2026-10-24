@@ -23,7 +23,9 @@ public interface IPaymentService
     /// <param name="transactionId">Id giao dịch từ PayOS.</param>
     /// <param name="amount">Số tiền thực nhận.</param>
     Task<ApiResponse> HandleWebhookSuccessAsync(
-        string orderCode, string transactionId, decimal amount);
+        string orderCode, string transactionId, decimal amount, string? transactionReference = null);
+
+    Task<ApiResponse> ConfirmManualRefundAsync(string orderId, string reference, decimal amount, string actor);
 
     /// <summary>
     /// Xử lý webhook "thanh toán thất bại / bị hủy" từ PayOS.

@@ -11,6 +11,12 @@ namespace REWEAR.Domain.Entities;
 [BsonIgnoreExtraElements]
 public class Order
 {
+    public string? CheckoutKey { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public DateTime? ReservationExpiresAt { get; set; }
+    public List<string> SelectedCartItemIds { get; set; } = new();
+    public ShippingMethod ShippingMethod { get; set; } = ShippingMethod.Standard;
+
     /// <summary>
     /// Khóa chính của đơn hàng.
     /// </summary>
@@ -164,7 +170,7 @@ public class Order
     /// </summary>
     [BsonIgnore]
     public bool IsFinalized => Status is OrderStatus.Delivered or OrderStatus.Cancelled
-        or OrderStatus.PaymentExpired;
+        or OrderStatus.PaymentExpired or OrderStatus.Returned;
 
     /// <summary>
     /// Tạo mã đơn hàng dạng RW-YYYYMMDD-XXXXXX.

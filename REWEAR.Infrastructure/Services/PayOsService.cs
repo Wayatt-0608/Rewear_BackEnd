@@ -11,8 +11,8 @@ namespace REWEAR.Infrastructure.Services;
 /// Implementation IPayOsService gọi REST API của PayOS (Task 8).
 /// </summary>
 /// <remarks>
-/// Hệ thống không nhận webhook nữa, chỉ gọi đi: tạo phiên, tra cứu trạng thái,
-/// hoàn tiền. Tất cả đều qua REST API của PayOS.
+/// Creates payment links and queries authoritative gateway state. Webhook signatures
+/// are verified by the API; automatic refunds remain disabled pending a verified contract.
 /// </remarks>
 public class PayOsService : IPayOsService
 {
@@ -25,6 +25,9 @@ public class PayOsService : IPayOsService
         PayOsSettings settings,
         ILogger<PayOsService> logger)
     {
+        if (!Uri.TryCreate(settings.BaseUrl, UriKind.Absolute, out var gatewayUri) || gatewayUri.Scheme != "https"
+            || !gatewayUri.Host.EndsWith(".payos.vn", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Cần cấu hình URL HTTPS thuộc payOS.");
         _httpClient = httpClient;
         _settings = settings;
         _logger = logger;
@@ -36,14 +39,15 @@ public class PayOsService : IPayOsService
     public async Task<PayOsCreateResult?> CreatePaymentRequestAsync(
         string orderCode, decimal amount,
         string returnUrl, string cancelUrl,
-        DateTime expiredAt)
+        DateTime expiredAt, long? numericOrderCode = null)
     {
-        // PayOS dùng đơn vị tiền tệ là VND (số nguyên).
-        long amountVnd = (long)Math.Round(amount, 0, MidpointRounding.AwayFromZero);
+        if (amount <= 0 || decimal.Truncate(amount) != amount || amount > int.MaxValue || expiredAt <= DateTime.UtcNow
+            || string.IsNullOrWhiteSpace(_settings.ChecksumKey)) return null;
+        long amountVnd = (long)amount;
 
         // orderCode phải là SỐ NGUYÊN DUY NHẤT. PayOS từ chối nếu trùng.
-        // Dùng Unix timestamp + random suffix để đảm bảo unique.
-        long numericOrderCode = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 9_000_000_000L + 1_000_000_000L;
+        // The application supplies a durable gateway identity for retries.
+        numericOrderCode ??= System.Security.Cryptography.RandomNumberGenerator.GetInt32(1, int.MaxValue);
 
         // PayOS yêu cầu signature cho body request (HMAC-SHA256).
         // Công thức chính thức:
@@ -89,20 +93,15 @@ public class PayOsService : IPayOsService
 
         try
         {
-            var response = await PostAsync("/v2/payment-requests", payload);
+            using var response = await PostAsync("/v2/payment-requests", payload);
 
             if (!response.IsSuccessStatusCode)
             {
-                var body = await response.Content.ReadAsStringAsync();
-                _logger.LogError(
-                    "PayOS create payment request that bai voi ma don {OrderCode}. Status: {Status}, Body: {Body}, Payload: {Payload}",
-                    orderCode, (int)response.StatusCode, body, System.Text.Json.JsonSerializer.Serialize(payload));
+                _logger.LogWarning("Cổng thanh toán trả lỗi hoặc dữ liệu không hợp lệ.");
                 return null;
             }
 
             var json = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("PayOS response: {Json}", json);
-
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -111,10 +110,7 @@ public class PayOsService : IPayOsService
             var code = root.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
             if (code != "00")
             {
-                var desc = root.TryGetProperty("desc", out var d) ? d.GetString() : json;
-                _logger.LogError(
-                    "PayOS tra ve code khong thanh cong {Code} cho don {OrderCode}: {Desc}",
-                    code, orderCode, desc);
+                _logger.LogWarning("PayOS từ chối tạo phiên thanh toán. Không ghi nội dung phản hồi.");
                 return null;
             }
 
@@ -122,11 +118,12 @@ public class PayOsService : IPayOsService
             // (ví dụ: đơn hàng đã tồn tại, signature sai, v.v.)
             if (!root.TryGetProperty("data", out var data))
             {
-                _logger.LogError(
-                    "PayOS response 200 OK nhung KHONG co field 'data'. Don {OrderCode}. Body: {Body}",
-                    orderCode, json);
+                _logger.LogWarning("Cổng thanh toán trả lỗi hoặc dữ liệu không hợp lệ.");
                 return null;
             }
+
+            if (!root.TryGetProperty("signature", out var responseSignature) || !PayOsSignature.Verify(data, responseSignature.GetString(), _settings.ChecksumKey))
+            { _logger.LogWarning("Không xác minh được chữ ký phản hồi tạo thanh toán."); return null; }
 
             // Mapping theo docs PayOS https://payos.vn/docs/api:
             //   data.id            = paymentLinkId (string UUID) - DÙNG ĐỂ TRA CỨU
@@ -143,6 +140,8 @@ public class PayOsService : IPayOsService
             // orderCode là số nguyên do backend gửi lên.
             string orderCodeStr = data.TryGetProperty("orderCode", out var oc)
                 ? oc.ToString() : "";
+            if (string.IsNullOrWhiteSpace(paymentLinkId) || orderCodeStr != numericOrderCode.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                || !data.TryGetProperty("amount", out var signedAmount) || signedAmount.GetDecimal() != amount) return null;
 
             return new PayOsCreateResult
             {
@@ -154,7 +153,7 @@ public class PayOsService : IPayOsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Loi khi goi PayOS tao payment request cho don {OrderCode}", orderCode);
+            _logger.LogWarning("Không nhận được phản hồi tạo thanh toán hợp lệ ({Type}).", ex.GetType().Name);
             return null;
         }
     }
@@ -183,7 +182,7 @@ public class PayOsService : IPayOsService
     {
         try
         {
-            var response = await GetAsync($"/v2/payment-requests/{transactionId}");
+            using var response = await GetAsync($"/v2/payment-requests/{Uri.EscapeDataString(transactionId)}");
 
             if (!response.IsSuccessStatusCode)
             {
@@ -194,8 +193,6 @@ public class PayOsService : IPayOsService
             }
 
             var json = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("PayOS get payment request response: {Json}", json);
-
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -203,11 +200,7 @@ public class PayOsService : IPayOsService
             if (!root.TryGetProperty("code", out var codeProp)
                 || codeProp.GetString() != "00")
             {
-                var desc = root.TryGetProperty("desc", out var d)
-                    ? d.GetString() : "unknown";
-                _logger.LogWarning(
-                    "PayOS tra ve code khong thanh cong khi tra cuu payment request: {Desc}",
-                    desc);
+                _logger.LogWarning("PayOS chưa trả về trạng thái giao dịch hợp lệ.");
                 return null;
             }
 
@@ -240,72 +233,16 @@ public class PayOsService : IPayOsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Loi khi tra cuu payment request PayOS {PaymentRequestId}", transactionId);
+            _logger.LogWarning("Không tra cứu được trạng thái thanh toán ({Type}).", ex.GetType().Name);
             return null;
         }
     }
 
     /// <summary>
-    /// Hoàn tiền: POST /v1/refunds
+    /// Automatic refund is intentionally disabled until a supported merchant contract is verified.
     /// </summary>
-    public async Task<PayOsRefundResult> RefundAsync(string transactionId, string? reason)
-    {
-        // Signature cho refund: amount=... (optional) & description=... & transactionId=...
-        // Nếu không truyền amount thì PayOS hoàn toàn bộ.
-        // Format: signature = HMAC_SHA256(checksumKey, "transactionId=xxx")
-        string signatureData = $"transactionId={transactionId}";
-        if (!string.IsNullOrWhiteSpace(reason))
-        {
-            signatureData = $"description={reason}&{signatureData}";
-        }
-        string signature = ComputeHmacSha256(_settings.ChecksumKey, signatureData);
-
-        var payload = new Dictionary<string, object>
-        {
-            ["transactionId"] = transactionId,
-            ["signature"] = signature
-        };
-
-        if (!string.IsNullOrWhiteSpace(reason))
-            payload["description"] = reason;
-
-        try
-        {
-            var response = await PostAsync("/v1/refunds", payload);
-            var body = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogError(
-                    "PayOS hoan tien that bai. TransactionId: {TransactionId}, Body: {Body}",
-                    transactionId, body);
-
-                return new PayOsRefundResult
-                {
-                    Success = false,
-                    Message = "PayOS tu choi yeu cau hoan tien."
-                };
-            }
-
-            using var doc = JsonDocument.Parse(body);
-            var data = doc.RootElement.GetProperty("data");
-
-            return new PayOsRefundResult
-            {
-                Success = true,
-                RefundId = data.TryGetProperty("id", out var rid) ? rid.GetString() : null
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Loi khi goi PayOS hoan tien giao dich {TransactionId}", transactionId);
-            return new PayOsRefundResult
-            {
-                Success = false,
-                Message = "Khong ket noi duoc PayOS de hoan tien."
-            };
-        }
-    }
+    public Task<PayOsRefundResult> RefundAsync(string transactionId, string? reason) =>
+        Task.FromResult(new PayOsRefundResult { Success = false, Message = "Hoàn tiền cần được đối soát và xác nhận theo chứng từ; chưa bật API hoàn tiền tự động." });
 
     // ============================================
     // HELPER
@@ -324,11 +261,7 @@ public class PayOsService : IPayOsService
         request.Headers.TryAddWithoutValidation("x-client-id", _settings.ClientId);
         request.Headers.TryAddWithoutValidation("x-api-key", _settings.ApiKey);
 
-        // User-Agent hợp lệ: Cloudflare origin có thể block request không có UA
-        // hoặc có UA giống bot (.NET HttpClient default).
-        request.Headers.TryAddWithoutValidation(
-            "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        request.Headers.UserAgent.ParseAdd("REWEAR/1.0");
 
         return request;
     }
@@ -359,6 +292,7 @@ public class PayOsService : IPayOsService
                 attempt, maxRetries, status);
             if (attempt < maxRetries)
             {
+                response.Dispose(); request.Dispose();
                 await Task.Delay(TimeSpan.FromSeconds(2 * attempt));
                 // Phải clone request vì body đã được đọc.
                 request = CreateRequest(HttpMethod.Post, path);
@@ -397,14 +331,12 @@ public class PayOsService : IPayOsService
                 ["webhookUrl"] = webhookUrl
             };
 
-            var response = await PostAsync("/confirm-webhook", payload);
+            using var response = await PostAsync("/confirm-webhook", payload);
             var body = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError(
-                    "PayOS confirm webhook that bai. Status: {Status}, Body: {Body}",
-                    (int)response.StatusCode, body);
+                _logger.LogWarning("Cổng thanh toán trả lỗi hoặc dữ liệu không hợp lệ.");
                 return false;
             }
 
@@ -412,21 +344,16 @@ public class PayOsService : IPayOsService
             var code = doc.RootElement.TryGetProperty("code", out var c) ? c.GetString() : null;
             if (code != "00")
             {
-                var desc = doc.RootElement.TryGetProperty("desc", out var d) ? d.GetString() : body;
-                _logger.LogError(
-                    "PayOS confirm webhook tra ve code khong thanh cong: {Code}, desc: {Desc}",
-                    code, desc);
+                _logger.LogWarning("PayOS chưa chấp thuận đăng ký webhook.");
                 return false;
             }
 
-            _logger.LogInformation(
-                "PayOS confirm webhook thanh cong. URL: {WebhookUrl}, Response: {Body}",
-                webhookUrl, body);
+            _logger.LogInformation("PayOS đã chấp thuận đăng ký webhook.");
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Loi khi confirm webhook voi PayOS. URL: {WebhookUrl}", webhookUrl);
+            _logger.LogWarning("Chưa đăng ký được webhook ({Type}).", ex.GetType().Name);
             return false;
         }
     }

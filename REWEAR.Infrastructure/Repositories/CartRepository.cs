@@ -10,7 +10,7 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class CartRepository : ICartRepository
 {
-    private readonly IMongoCollection<Cart> _carts;
+    private readonly TransactionalCollection<Cart> _carts;
 
     public CartRepository(MongoDbContext context)
     {

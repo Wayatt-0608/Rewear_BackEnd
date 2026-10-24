@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -10,21 +10,23 @@ using REWEAR.Infrastructure.Persistence;
 using REWEAR.Infrastructure.Repositories;
 using REWEAR.API.Middleware;
 using System.Net;
-using System.Net.Security;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
-// Force TLS 1.2 for MongoDB connection
-ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-ServicePointManager.ServerCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
-
+// TLS certificates are verified by the platform. Never disable validation.
 var builder = WebApplication.CreateBuilder(args);
 // Allow the deployed REWEAR frontend to call this API from the browser.
-builder.Services.AddCors(options => options.AddPolicy("RewearFrontend", policy =>
-    policy.WithOrigins("https://rewear-wyb0.onrender.com")
-        .AllowAnyHeader()
-        .AllowAnyMethod()));
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
+        (context.Connection.RemoteIpAddress?.ToString() ?? "unknown") + context.Request.Path,
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
+
 
 // Đọc cấu hình MongoDB từ appsettings.json
 var mongoSettings = new MongoDbSettings
@@ -35,9 +37,25 @@ var mongoSettings = new MongoDbSettings
                    ?? throw new InvalidOperationException("MongoDB DatabaseName not found")
 };
 
+// Explicit maintenance command; normal API startup never changes legacy documents.
+if (args.Contains("--delivery-migration-check") || args.Contains("--delivery-migration-apply"))
+{
+    var report = await new DeliverySchemaMigration(mongoSettings).RunAsync(args.Contains("--delivery-migration-apply"));
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(report));
+    return;
+}
+
+if (args.Contains("--commerce-migration-check") || args.Contains("--commerce-migration-apply"))
+{
+    var report = await new CommerceSchemaMigration(mongoSettings).RunAsync(args.Contains("--commerce-migration-apply"));
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(report));
+    return;
+}
+
 // Đọc cấu hình JWT từ appsettings.json
 var jwtSecret = builder.Configuration.GetSection("JwtSettings:SecretKey").Value 
                 ?? throw new InvalidOperationException("JWT SecretKey not found");
+if (Encoding.UTF8.GetByteCount(jwtSecret) < 32) throw new InvalidOperationException("JwtSettings:SecretKey cần ít nhất 32 byte.");
 var jwtIssuer = builder.Configuration.GetSection("JwtSettings:Issuer").Value ?? "RewearAPI";
 var jwtAudience = builder.Configuration.GetSection("JwtSettings:Audience").Value ?? "RewearApp";
 
@@ -54,6 +72,10 @@ builder.Services.AddSingleton(jwtSettings);
 // Đăng ký MongoDbContext vào Dependency Injection
 builder.Services.AddSingleton(mongoSettings);
 builder.Services.AddSingleton<MongoDbContext>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.ICommerceUnitOfWork, MongoCommerceUnitOfWork>();
+var reservationMinutes = builder.Configuration.GetValue("Commerce:ReservationMinutes", 15);
+if (reservationMinutes is < 2 or > 60) throw new InvalidOperationException("Commerce:ReservationMinutes phải từ 2 đến 60 phút.");
+builder.Services.AddSingleton(new REWEAR.Application.DTOs.CommerceOptions { ReservationMinutes = reservationMinutes });
 
 // Đọc cấu hình Cloudinary từ appsettings.json
 var cloudinarySettings = new CloudinarySettings
@@ -95,6 +117,12 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IPaymentRepository, Pay
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IShippingRepository, ShippingRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingRepository, SourcingRepository>();
 
+builder.Services.AddScoped<REWEAR.Application.Interfaces.ILifecycleStore, LifecycleStore>();
+builder.Services.AddScoped<REWEAR.Application.Services.CircularFashionService>();
+builder.Services.AddScoped<REWEAR.Application.Services.ReturnService>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IOperationsQueries, REWEAR.Infrastructure.Services.OperationsQueries>();
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IProductJourneyQuery, REWEAR.Infrastructure.Services.ProductJourneyQuery>();
+
 // Đăng ký Services
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IAuthService, REWEAR.Application.Services.AuthService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IProfileService, REWEAR.Application.Services.ProfileService>();
@@ -108,104 +136,16 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IOrderService, REWEAR.A
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEAR.Application.Services.SourcingService>();
 
 // ====== PAYMENT (Task 8) ======
-// HttpClient cho PayOsService: dùng AddHttpClient để có connection pooling
-// và cơ chế tái tạo kết nối tự động khi DNS/đường dây đổi.
-//
-// PayOS dùng Cloudflare, và api-merchant.payos.vn có thể không resolve được DNS
-    // (hoặc bị chặn bởi ISP). Dùng SocketsHttpHandler với ConnectCallback
-    // để override DNS resolution: ép api-merchant.payos.vn → 104.21.40.122 (IP Cloudflare thật).
-    // Cách này KHÔNG cần sửa hosts file.
+// Use platform DNS and certificate validation; never pin changing gateway IPs.
 builder.Services.AddSingleton<REWEAR.Application.Interfaces.IPaymentGatewayConfig,
     REWEAR.Infrastructure.Services.PaymentGatewayConfig>();
-
-builder.Services.AddScoped<REWEAR.Application.Interfaces.IPayOsService>(sp =>
-{
-    var settings = sp.GetRequiredService<PayOsSettings>();
-    var logger = sp.GetRequiredService<ILogger<REWEAR.Infrastructure.Services.PayOsService>>();
-
-    // SocketsHttpHandler cho phép override DNS resolution ở mức kết nối TCP.
-    var handler = new SocketsHttpHandler
+builder.Services.AddHttpClient<REWEAR.Application.Interfaces.IPayOsService, REWEAR.Infrastructure.Services.PayOsService>(client =>
+    client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
     {
-        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
         AllowAutoRedirect = false,
-        ConnectCallback = async (context, cancellationToken) =>
-        {
-            // Nếu đang kết nối đến api.payos.vn HOẶC api-beta.payos.vn
-            // → dùng IP Cloudflare thật của PayOS.
-            //
-            // Lý do: cả 2 domain có thể không resolve được DNS trên môi trường
-            // Render Singapore (bị ISP/VN chặn DNS, hoặc sandbox geo-block).
-            // Cloudflare vẫn nhận request nếu kết nối thẳng đến IP + đúng Host header.
-            //
-            // Cloudflare sở hữu dải IP rất lớn. Thử vài IP phổ biến:
-            // 104.21.0.0/16 và 172.67.0.0/16.
-            var host = context.DnsEndPoint.Host;
-            if (host.Equals("api-merchant.payos.vn", StringComparison.OrdinalIgnoreCase) ||
-                host.Equals("api.payos.vn", StringComparison.OrdinalIgnoreCase) ||
-                host.Equals("api-beta.payos.vn", StringComparison.OrdinalIgnoreCase))
-            {
-                // Thử các IP Cloudflare cho PayOS (có thể xoay vòng).
-                string[] cloudflareIPs =
-                {
-                    "104.21.40.122",  // IP cũ - vẫn hoạt động
-                    "104.21.65.122",  // IP backup 1
-                    "172.67.155.122", // IP backup 2
-                };
-
-                System.Net.Sockets.Socket? socket = null;
-                System.Net.Sockets.SocketException? lastError = null;
-
-                foreach (var ip in cloudflareIPs)
-                {
-                    try
-                    {
-                        socket = new System.Net.Sockets.Socket(
-                            System.Net.Sockets.AddressFamily.InterNetwork,
-                            System.Net.Sockets.SocketType.Stream,
-                            System.Net.Sockets.ProtocolType.Tcp);
-                        await socket.ConnectAsync(
-                            new System.Net.IPEndPoint(
-                                System.Net.IPAddress.Parse(ip), 443),
-                            cancellationToken);
-                        lastError = null;
-                        break;  // Kết nối thành công, thoát vòng lặp
-                    }
-                    catch (System.Net.Sockets.SocketException ex)
-                    {
-                        lastError = ex;
-                        socket?.Dispose();
-                        socket = null;
-                        // Thử IP tiếp theo
-                    }
-                }
-
-                if (socket == null)
-                {
-                    throw lastError ?? new System.Net.Sockets.SocketException(
-                        (int)System.Net.Sockets.SocketError.HostNotFound);
-                }
-
-                // SocketsHttpHandler sẽ tự động bắt tay TLS trên stream này.
-                return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
-            }
-
-            // Mọi host khác: kết nối bình thường (DNS resolution mặc định).
-            var defaultSocket = new System.Net.Sockets.Socket(
-                System.Net.Sockets.AddressFamily.InterNetwork,
-                System.Net.Sockets.SocketType.Stream,
-                System.Net.Sockets.ProtocolType.Tcp);
-            await defaultSocket.ConnectAsync(context.DnsEndPoint, cancellationToken);
-            return new System.Net.Sockets.NetworkStream(defaultSocket, ownsSocket: true);
-        }
-    };
-
-    var httpClient = new HttpClient(handler)
-    {
-        Timeout = TimeSpan.FromSeconds(30)
-    };
-
-    return new REWEAR.Infrastructure.Services.PayOsService(httpClient, settings, logger);
-});
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+    });
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IPaymentService,
     REWEAR.Application.Services.PaymentService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IShippingService,
@@ -251,7 +191,7 @@ builder.Services.AddAuthorization(options =>
     // Policy dễ nhớ cho các endpoint admin
     options.AddPolicy("AdminOnly", policy => policy.RequireRole(nameof(UserRole.Admin)));
     options.AddPolicy("StaffOrAdmin", policy => policy.RequireRole(nameof(UserRole.Admin), nameof(UserRole.Staff)));
-    options.AddPolicy("ShippingOrAdmin", policy => policy.RequireRole(nameof(UserRole.Admin), nameof(UserRole.Shipper)));
+    options.AddPolicy("ShippingOrAdmin", policy => policy.RequireRole(nameof(UserRole.Admin), nameof(UserRole.Staff), nameof(UserRole.Shipper)));
 
     // Policy mặc định: chỉ cần đăng nhập (dùng khi endpoint chỉ gắn [Authorize])
     options.DefaultPolicy = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
@@ -368,9 +308,9 @@ if (app.Environment.IsDevelopment())
 // CORS phải đặt TRƯỚC UseAuthentication để preflight OPTIONS không bị middleware auth chặn.
 app.UseCors("AllowFrontend");
 
-app.UseCors("RewearFrontend");
 app.UseAuthentication();  // JWT Authentication
 app.UseRoleChecking();   // Role checking (log + chặn admin API cho non-Admin)
+app.UseRateLimiter();
 app.UseAuthorization();  // Authorization Policies
 app.MapControllers();
 
@@ -379,49 +319,5 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcN
    .AllowAnonymous();
 
 // ========================================
-// DEBUG ENDPOINT - JWT (tạm thời, chỉ để debug)
-// ========================================
-app.MapGet("/debug-jwt", (HttpContext ctx) =>
-{
-    var authHeader = ctx.Request.Headers["Authorization"].ToString();
-    var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-        ? authHeader.Substring(7).Trim()
-        : authHeader.Trim();
-
-    string tokenInfo = "no-token-provided";
-    if (!string.IsNullOrEmpty(token))
-    {
-        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-        try
-        {
-            var jwt = handler.ReadJwtToken(token);
-            tokenInfo = $"valid-jwt: sub={jwt.Subject}, iat={new DateTimeOffset(jwt.IssuedAt):yyyy-MM-dd HH:mm:ss}, exp={new DateTimeOffset(jwt.ValidTo):yyyy-MM-dd HH:mm:ss}";
-        }
-        catch (Exception ex)
-        {
-            tokenInfo = $"invalid-jwt: {ex.Message}";
-        }
-    }
-
-    // Hash MD5 của SecretKey server để so sánh (không lộ key thật)
-    using var md5 = System.Security.Cryptography.MD5.Create();
-    var secretHash = BitConverter.ToString(md5.ComputeHash(Encoding.UTF8.GetBytes(jwtSecret)))
-        .Replace("-", "").ToLowerInvariant();
-
-    // Hex encoding để thấy ký tự ẩn (null, space, etc.)
-    var secretHex = BitConverter.ToString(Encoding.UTF8.GetBytes(jwtSecret))
-        .Replace("-", " ").ToLowerInvariant();
-
-    return Results.Ok(new
-    {
-        serverSecretHash = secretHash,
-        serverSecretLength = jwtSecret.Length,
-        serverSecretStart = jwtSecret.Substring(0, Math.Min(15, jwtSecret.Length)) + "...",
-        serverSecretHex = secretHex,  // ← MỚI: hiển thị hex để thấy ký tự ẩn
-        jwtIssuer = jwtIssuer,
-        jwtAudience = jwtAudience,
-        tokenInfo = tokenInfo
-    });
-}).AllowAnonymous();
-
+// Diagnostic endpoints must not expose authentication or configuration material.
 app.Run();

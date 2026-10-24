@@ -64,6 +64,13 @@ public class CreateSourcingRequest
 /// </summary>
 public class SourcingResponse
 {
+    public int OfferVersion { get; set; }
+    public bool RequiresRevisedAcceptance { get; set; }
+    public decimal? AcceptedOfferPrice { get; set; }
+    public string? InspectedBy { get; set; }
+    public DateTime? InspectedAt { get; set; }
+    public REWEAR.Domain.Entities.PurchasePayout? Payout { get; set; }
+    public List<REWEAR.Domain.Entities.SourcingOffer> OfferHistory { get; set; } = new();
     public string Id { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
@@ -104,6 +111,11 @@ public class OfferSourcingRequest
     public string? AdminNote { get; set; }
 }
 
+public sealed class AcceptSourcingOfferRequest
+{
+    public int? OfferVersion { get; set; }
+}
+
 /// <summary>
 /// DTO cho Staff/Admin từ chối sourcing request.
 /// </summary>
@@ -120,6 +132,9 @@ public class RejectSourcingRequest
 /// </summary>
 public class InspectSourcingRequest
 {
+    public bool Passed { get; set; } = true;
+    public decimal? RevisedPrice { get; set; }
+    public List<string> Images { get; set; } = new();
     /// <summary>
     /// Tình trạng chính thức sau kiểm định của REWEAR.
     /// </summary>

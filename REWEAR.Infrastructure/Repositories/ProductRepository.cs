@@ -12,11 +12,17 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class ProductRepository : IProductRepository
 {
-    private readonly IMongoCollection<Product> _products;
+    public async Task<bool> HasActiveAllocationAsync(string productId) => await _reservations
+        .CountDocumentsAsync(r => r.ProductId == productId && (r.State == "Reserved" || r.State == "Paid")) > 0;
+    private readonly TransactionalCollection<Product> _products;
+    private readonly TransactionalCollection<StockReservation> _reservations;
+    private readonly MongoDbContext _context;
 
     public ProductRepository(MongoDbContext context)
     {
+        _context = context;
         _products = context.Products;
+        _reservations = context.Collection<StockReservation>("StockReservations");
     }
 
     public async Task<List<Product>> GetAllAsync()
@@ -130,7 +136,13 @@ public class ProductRepository : IProductRepository
     public async Task UpdateAsync(Product product)
     {
         product.UpdatedAt = DateTime.UtcNow;
-        await _products.ReplaceOneAsync(x => x.Id == product.Id, product);
+        var version = product.Version;
+        product.Version++;
+        var filter = Builders<Product>.Filter.Eq(p => p.Id, product.Id) & (version == 0
+            ? Builders<Product>.Filter.Or(Builders<Product>.Filter.Eq(p => p.Version, 0), Builders<Product>.Filter.Exists(p => p.Version, false))
+            : Builders<Product>.Filter.Eq(p => p.Version, version));
+        if ((await _products.ReplaceOneAsync(filter, product)).MatchedCount == 0)
+            throw new InvalidOperationException("Sản phẩm đã thay đổi. Vui lòng tải lại trước khi lưu.");
     }
 
     /// <summary>
@@ -143,77 +155,77 @@ public class ProductRepository : IProductRepository
     /// tồn kho lại (ReleaseStockAsync chỉ hoạt động với Available/Reserved).
     /// Trạng thái Sold chỉ được đặt khi đơn thực sự hoàn tất (CommitStockAsync, Task 7).
     /// </remarks>
-    public async Task<long> TryReserveStockAsync(string productId, int quantity)
+
+    public async Task<long> TryReserveStockAsync(string productId, int quantity, string orderId, DateTime expiresAt)
     {
-        if (quantity < 1) return 0;
-
-        var filter = Builders<Product>.Filter.And(
-            Builders<Product>.Filter.Eq(x => x.Id, productId),
-            Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Available),
-            Builders<Product>.Filter.Eq(x => x.IsActive, true),
-            Builders<Product>.Filter.Gte(x => x.StockQuantity, quantity)
-        );
-
-        var update = Builders<Product>.Update
-            .Inc(x => x.StockQuantity, -quantity)
-            .Set(x => x.Status, ProductStatus.Reserved)
-            .Set(x => x.UpdatedAt, DateTime.UtcNow);
-
-        var result = await _products.UpdateOneAsync(filter, update);
-        return result.ModifiedCount;
+        if (quantity < 1 || string.IsNullOrWhiteSpace(orderId)) return 0;
+        var key = orderId + ":" + productId;
+        var existing = await _reservations.Find(r => r.Id == key).FirstOrDefaultAsync();
+        if (existing != null) return existing.State == "Reserved" && existing.Quantity == quantity ? 1 : 0;
+        var product = await GetByIdAsync(productId);
+        if (product == null || !product.IsActive || product.Status != ProductStatus.Available || product.StockQuantity < quantity) return 0;
+        bool unique = product.IsUnique ?? product.StockQuantity <= 1;
+        if (unique && quantity != 1) return 0;
+        var updated = await _products.UpdateOneAsync(p => p.Id == productId && p.Status == ProductStatus.Available && p.IsActive && p.StockQuantity >= quantity,
+            Builders<Product>.Update.Inc(p => p.StockQuantity, -quantity).Set(p => p.IsUnique, unique)
+                .Set(p => p.Status, product.StockQuantity > quantity ? ProductStatus.Available : ProductStatus.Reserved).Set(p => p.UpdatedAt, DateTime.UtcNow).Inc(p => p.Version, 1));
+        if (updated.ModifiedCount == 0) return 0;
+        await _reservations.InsertOneAsync(new StockReservation { Id = key, OrderId = orderId, ProductId = productId, Quantity = quantity, ExpiresAt = expiresAt });
+        await MoveRetailInventory(productId, "Reserved", orderId);
+        return 1;
     }
 
-    /// <summary>
-    /// Trả lại N món về kho (rollback khi checkout lỗi, hoặc khi hủy đơn).
-    /// </summary>
-    /// <remarks>
-    /// Chấp nhận cả Available và Reserved: sau khi checkout, sản phẩm luôn ở
-    /// trạng thái Reserved nên phải trả được về Available khi hủy đơn.
-    /// </remarks>
-    public async Task<long> ReleaseStockAsync(string productId, int quantity)
+    public Task<long> ReleaseStockAsync(string productId, int quantity, string orderId) => RestoreAsync(productId, quantity, orderId, "Reserved");
+    public Task<long> RestorePaidStockAsync(string productId, int quantity, string orderId) => RestoreAsync(productId, quantity, orderId, "Paid");
+
+    private async Task<long> RestoreAsync(string productId, int quantity, string orderId, string fromState)
     {
-        if (quantity < 1) return 0;
-
-        var filter = Builders<Product>.Filter.And(
-            Builders<Product>.Filter.Eq(x => x.Id, productId),
-            Builders<Product>.Filter.In(x => x.Status, new[] { ProductStatus.Available, ProductStatus.Reserved }),
-            // Không trả về kho cho sản phẩm đã bị gỡ khỏi cửa hàng.
-            Builders<Product>.Filter.Eq(x => x.IsActive, true)
-        );
-
-        var update = Builders<Product>.Update
-            .Inc(x => x.StockQuantity, quantity)
-            .Set(x => x.Status, ProductStatus.Available)
-            .Set(x => x.UpdatedAt, DateTime.UtcNow);
-
-        var result = await _products.UpdateOneAsync(filter, update);
-        return result.ModifiedCount;
+        if (quantity < 1 || string.IsNullOrWhiteSpace(orderId)) return 0;
+        var key = orderId + ":" + productId;
+        var changed = await _reservations.UpdateOneAsync(r => r.Id == key && r.Quantity == quantity && r.State == fromState,
+            Builders<StockReservation>.Update.Set(r => r.State, "Released").Set(r => r.UpdatedAt, DateTime.UtcNow));
+        if (changed.ModifiedCount == 0) return 0;
+        var product = await GetByIdAsync(productId) ?? throw new InvalidOperationException("Không tìm thấy sản phẩm để trả kho.");
+        // Publication visibility is independent; an inactive item still receives its stock back.
+        await _products.UpdateOneAsync(p => p.Id == productId,
+            Builders<Product>.Update.Inc(p => p.StockQuantity, quantity).Set(p => p.Status, ProductStatus.Available).Set(p => p.UpdatedAt, DateTime.UtcNow).Inc(p => p.Version, 1));
+        await MoveRetailInventory(productId, "ReadyRetail", orderId);
+        return 1;
     }
 
-    /// <summary>
-    /// Hoàn tất bán N món (gọi khi đơn chuyển Confirmed/Delivered - Task 7).
-    /// Tồn kho đã bị trừ lúc Reserve nên bước này chỉ chốt lại trạng thái.
-    /// Theo Option A: chuyển Product sang Sold ngay khi thanh toán thành công,
-    /// không phụ thuộc vào StockQuantity (mỗi listing là 1 sản phẩm độc lập).
-    /// </summary>
-    public async Task<long> CommitStockAsync(string productId, int quantity)
+    public async Task<long> CommitStockAsync(string productId, int quantity, string orderId)
     {
-        if (quantity < 1) return 0;
+        var key = orderId + ":" + productId;
+        var changed = await _reservations.UpdateOneAsync(r => r.Id == key && r.Quantity == quantity && r.State == "Reserved",
+            Builders<StockReservation>.Update.Set(r => r.State, "Paid").Set(r => r.UpdatedAt, DateTime.UtcNow));
+        if (changed.ModifiedCount == 0) return 0;
+        var product = await GetByIdAsync(productId) ?? throw new InvalidOperationException("Không tìm thấy sản phẩm đã giữ.");
+        await _products.UpdateOneAsync(p => p.Id == productId,
+            Builders<Product>.Update.Set(p => p.Status, product.StockQuantity > 0 ? ProductStatus.Available : ProductStatus.Sold).Set(p => p.UpdatedAt, DateTime.UtcNow).Inc(p => p.Version, 1));
+        await MoveRetailInventory(productId, "Sold", orderId);
+        return 1;
+    }
 
-        // ✅ OPTION A: Set Sold ngay khi thanh toán thành công.
-        // Điều kiện Status = Reserved để không ghi đè trạng thái của
-        // một giao dịch khác đang xử lý.
-        var soldResult = await _products.UpdateOneAsync(
-            Builders<Product>.Filter.And(
-                Builders<Product>.Filter.Eq(x => x.Id, productId),
-                Builders<Product>.Filter.Eq(x => x.Status, ProductStatus.Reserved)
-            ),
-            Builders<Product>.Update
-                .Set(x => x.Status, ProductStatus.Sold)
-                .Set(x => x.UpdatedAt, DateTime.UtcNow)
-        );
-
-        return soldResult.ModifiedCount;
+    private async Task MoveRetailInventory(string productId, string target, string orderId)
+    {
+        var collection = _context.Collection<InventoryItem>("InventoryItems");
+        var rows = await collection.Find(i => i.ProductId == productId && i.State != "Consumed").ToListAsync();
+        foreach (var row in rows)
+        {
+            var from = row.State;
+            bool allowed = target switch
+            {
+                "Reserved" => from == "ReadyRetail",
+                "Sold" => from == "Reserved",
+                "ReadyRetail" => from is "Reserved" or "Sold" or "ReturnAwaitingRefund",
+                _ => false
+            };
+            if (!allowed) throw new InvalidOperationException("Trạng thái kho vòng đời không khớp phân bổ đơn hàng; cần đối soát.");
+            row.State = target; row.Version++; row.UpdatedAt = DateTime.UtcNow;
+            await collection.ReplaceOneAsync(i => i.Id == row.Id, row);
+            await _context.Collection<InventoryMovement>("InventoryMovements").InsertOneAsync(new()
+            { InventoryId = row.Id, FromState = from, ToState = target, ActorId = "System", RelatedId = orderId, Reason = "Đồng bộ phân bổ tồn kho theo đơn hàng." });
+        }
     }
 
     /// <summary>

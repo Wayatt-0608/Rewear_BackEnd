@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using REWEAR.Application.DTOs;
@@ -6,6 +7,7 @@ using REWEAR.Application.Interfaces;
 namespace REWEAR.API.Controllers;
 
 [ApiController]
+[EnableRateLimiting("auth")]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {

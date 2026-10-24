@@ -12,6 +12,9 @@ namespace REWEAR.Application.Services;
 /// </summary>
 public class SourcingService : ISourcingService
 {
+    private readonly ICommerceUnitOfWork _transactions;
+    private readonly CircularFashionService _operations;
+    private readonly ILifecycleStore _store;
     private readonly ISourcingRepository _sourcingRepository;
     private readonly IUserRepository _userRepository;
     private readonly IBrandRepository _brandRepository;
@@ -25,8 +28,9 @@ public class SourcingService : ISourcingService
         IBrandRepository brandRepository,
         ICategoryRepository categoryRepository,
         IProductRepository productRepository,
-        ICloudinaryService cloudinaryService)
+        ICloudinaryService cloudinaryService, ICommerceUnitOfWork transactions, CircularFashionService operations, ILifecycleStore store)
     {
+        _transactions = transactions; _operations = operations; _store = store;
         _sourcingRepository = sourcingRepository;
         _userRepository = userRepository;
         _brandRepository = brandRepository;
@@ -57,8 +61,9 @@ public class SourcingService : ISourcingService
             throw new ArgumentException("Tiêu đề không được chỉ chứa khoảng trắng.");
 
         // CustomerExpectedPrice validation (nếu có thì > 0)
-        if (request.CustomerExpectedPrice.HasValue && request.CustomerExpectedPrice.Value <= 0)
-            throw new ArgumentException("Giá mong muốn phải lớn hơn 0.");
+        if (request.CustomerExpectedPrice.HasValue && (request.CustomerExpectedPrice.Value <= 0 || decimal.Truncate(request.CustomerExpectedPrice.Value) != request.CustomerExpectedPrice.Value))
+            throw new ArgumentException("Giá mong muốn phải là số nguyên VND lớn hơn 0.");
+        if (!Enum.IsDefined(request.DeclaredCondition)) throw new ArgumentException("Tình trạng khai báo không hợp lệ.");
 
         // Image validation
         if (request.ImageUrls == null || request.ImageUrls.Count == 0)
@@ -158,7 +163,9 @@ public class SourcingService : ISourcingService
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> StartReviewAsync(string id)
+    public Task<SourcingResponse?> StartReviewAsync(string id) => _transactions.ExecuteAsync(() => StartReviewAsyncCore(id));
+
+    private async Task<SourcingResponse?> StartReviewAsyncCore(string id)
     {
         if (!ObjectId.TryParse(id, out _))
             return null;
@@ -178,7 +185,9 @@ public class SourcingService : ISourcingService
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> OfferPriceAsync(string id, OfferSourcingRequest request)
+    public Task<SourcingResponse?> OfferPriceAsync(string id, OfferSourcingRequest request, string actorId = "") => _transactions.ExecuteAsync(() => OfferPriceAsyncCore(id, request, actorId));
+
+    private async Task<SourcingResponse?> OfferPriceAsyncCore(string id, OfferSourcingRequest request, string actorId = "")
     {
         if (!ObjectId.TryParse(id, out _))
             return null;
@@ -188,13 +197,16 @@ public class SourcingService : ISourcingService
             return null;
 
         // Chỉ cho phép: UnderReview → Priced
-        if (sourcingRequest.Status != SourcingStatus.UnderReview)
+        if (sourcingRequest.Status is not (SourcingStatus.UnderReview or SourcingStatus.Priced))
             throw new InvalidOperationException("Chỉ có thể định giá request đang ở trạng thái UnderReview.");
 
         // Validate OfferedPrice
-        if (request.OfferedPrice <= 0)
-            throw new ArgumentException("Giá đề nghị phải lớn hơn 0.");
+        if (request.OfferedPrice <= 0 || decimal.Truncate(request.OfferedPrice) != request.OfferedPrice)
+            throw new ArgumentException("Giá đề nghị phải là số nguyên VND lớn hơn 0.");
 
+        if (decimal.Truncate(request.OfferedPrice) != request.OfferedPrice) throw new ArgumentException("Giá phải là số nguyên VND.");
+        sourcingRequest.OfferVersion++;
+        sourcingRequest.OfferHistory.Add(new SourcingOffer { Version = sourcingRequest.OfferVersion, Amount = request.OfferedPrice, ActorId = actorId });
         sourcingRequest.OfferedPrice = request.OfferedPrice;
         sourcingRequest.AdminNote = request.AdminNote?.Trim();
         sourcingRequest.Status = SourcingStatus.Priced;
@@ -205,7 +217,9 @@ public class SourcingService : ISourcingService
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> RejectAsync(string id, RejectSourcingRequest request)
+    public Task<SourcingResponse?> RejectAsync(string id, RejectSourcingRequest request) => _transactions.ExecuteAsync(() => RejectAsyncCore(id, request));
+
+    private async Task<SourcingResponse?> RejectAsyncCore(string id, RejectSourcingRequest request)
     {
         if (!ObjectId.TryParse(id, out _))
             return null;
@@ -233,7 +247,9 @@ public class SourcingService : ISourcingService
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> AcceptOfferAsync(string id, string userId)
+    public Task<SourcingResponse?> AcceptOfferAsync(string id, string userId, int? offerVersion = null) => _transactions.ExecuteAsync(() => AcceptOfferAsyncCore(id, userId, offerVersion));
+
+    private async Task<SourcingResponse?> AcceptOfferAsyncCore(string id, string userId, int? offerVersion = null)
     {
         if (!ObjectId.TryParse(id, out _))
             return null;
@@ -247,10 +263,20 @@ public class SourcingService : ISourcingService
             throw new UnauthorizedAccessException("Bạn không có quyền thực hiện thao tác này.");
 
         // Chỉ cho phép: Priced → Accepted
-        if (sourcingRequest.Status != SourcingStatus.Priced)
-            throw new InvalidOperationException("Chỉ có thể chấp nhận giá khi request đang ở trạng thái Priced.");
+        if (sourcingRequest.Status != SourcingStatus.Priced && !(sourcingRequest.Status == SourcingStatus.Received && sourcingRequest.RequiresRevisedAcceptance))
+            throw new InvalidOperationException("Yêu cầu không chờ đồng ý giá.");
+        if (sourcingRequest.OfferVersion > 0 && offerVersion != sourcingRequest.OfferVersion) throw new InvalidOperationException("Báo giá đã thay đổi, vui lòng tải lại trước khi đồng ý.");
 
-        sourcingRequest.Status = SourcingStatus.Accepted;
+        sourcingRequest.AcceptedOfferPrice = sourcingRequest.OfferedPrice;
+        if (sourcingRequest.OfferHistory.LastOrDefault() is { } offer) offer.AcceptedAt = DateTime.UtcNow;
+        if (sourcingRequest.RequiresRevisedAcceptance)
+        {
+            sourcingRequest.RequiresRevisedAcceptance = false; sourcingRequest.Status = SourcingStatus.Approved;
+            var item = await _store.GetAsync<InventoryItem>(id) ?? throw new InvalidOperationException("Chưa có bản ghi kho.");
+            var from = item.State; item.State = "AwaitingPayout"; await _store.SaveAsync(item);
+            await _store.InsertAsync(new InventoryMovement { InventoryId = id, FromState = from, ToState = item.State, ActorId = userId, Reason = "Người gửi đồng ý báo giá sau kiểm định." });
+        }
+        else sourcingRequest.Status = SourcingStatus.Accepted;
 
         await _sourcingRepository.UpdateAsync(sourcingRequest);
 
@@ -258,7 +284,9 @@ public class SourcingService : ISourcingService
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> DeclineOfferAsync(string id, string userId)
+    public Task<SourcingResponse?> DeclineOfferAsync(string id, string userId) => _transactions.ExecuteAsync(() => DeclineOfferAsyncCore(id, userId));
+
+    private async Task<SourcingResponse?> DeclineOfferAsyncCore(string id, string userId)
     {
         if (!ObjectId.TryParse(id, out _))
             return null;
@@ -272,8 +300,15 @@ public class SourcingService : ISourcingService
             throw new UnauthorizedAccessException("Bạn không có quyền thực hiện thao tác này.");
 
         // Chỉ cho phép: Priced → Declined
-        if (sourcingRequest.Status != SourcingStatus.Priced)
-            throw new InvalidOperationException("Chỉ có thể từ chối giá khi request đang ở trạng thái Priced.");
+        if (sourcingRequest.Status != SourcingStatus.Priced && !sourcingRequest.RequiresRevisedAcceptance)
+            throw new InvalidOperationException("Yêu cầu không chờ quyết định giá.");
+        if (sourcingRequest.RequiresRevisedAcceptance)
+        {
+            var item = await _store.GetAsync<InventoryItem>(id) ?? throw new InvalidOperationException("Chưa có bản ghi kho.");
+            item.State = "ReturnToSenderPending"; await _store.SaveAsync(item);
+            await _store.InsertAsync(new InventoryMovement { InventoryId = id, FromState = "AwaitingCustomerAcceptance", ToState = item.State, ActorId = userId, Reason = "Người gửi từ chối giá sau kiểm định." });
+            sourcingRequest.RequiresRevisedAcceptance = false;
+        }
 
         sourcingRequest.Status = SourcingStatus.Declined;
         sourcingRequest.CompletedAt = DateTime.UtcNow;
@@ -284,97 +319,24 @@ public class SourcingService : ISourcingService
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> MarkReceivedAsync(string id)
+    public async Task<SourcingResponse?> MarkReceivedAsync(string id, string actorId = "")
     {
-        if (!ObjectId.TryParse(id, out _))
-            return null;
-
-        var sourcingRequest = await _sourcingRepository.GetByIdAsync(id);
-        if (sourcingRequest == null)
-            return null;
-
-        // Chỉ cho phép: Accepted → Received
-        if (sourcingRequest.Status != SourcingStatus.Accepted)
-            throw new InvalidOperationException("Chỉ có thể đánh dấu đã nhận hàng khi request đang ở trạng thái Accepted.");
-
-        sourcingRequest.Status = SourcingStatus.Received;
-
-        await _sourcingRepository.UpdateAsync(sourcingRequest);
-
-        return await MapToResponse(sourcingRequest);
+        await _operations.ReceiveAsync(id, actorId);
+        return await GetByIdAsync(id);
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> InspectAsync(string id, InspectSourcingRequest request)
+    public async Task<SourcingResponse?> InspectAsync(string id, InspectSourcingRequest request, string actorId = "")
     {
-        if (!ObjectId.TryParse(id, out _))
-            return null;
-
-        var sourcingRequest = await _sourcingRepository.GetByIdAsync(id);
-        if (sourcingRequest == null)
-            return null;
-
-        // Chỉ cho phép: Received → Approved
-        if (sourcingRequest.Status != SourcingStatus.Received)
-            throw new InvalidOperationException("Chỉ có thể kiểm định request đang ở trạng thái Received.");
-
-        sourcingRequest.InspectedCondition = request.InspectedCondition;
-        sourcingRequest.AdminNote = request.AdminNote?.Trim();
-        sourcingRequest.Status = SourcingStatus.Approved;
-
-        await _sourcingRepository.UpdateAsync(sourcingRequest);
-
-        return await MapToResponse(sourcingRequest);
+        await _operations.InspectSourceAsync(id, request, actorId);
+        return await GetByIdAsync(id);
     }
 
     /// <inheritdoc />
-    public async Task<SourcingResponse?> ConvertToProductAsync(string id, ConvertToProductRequest request)
+    public async Task<SourcingResponse?> ConvertToProductAsync(string id, ConvertToProductRequest request, string actorId = "")
     {
-        if (!ObjectId.TryParse(id, out _))
-            return null;
-
-        var sourcingRequest = await _sourcingRepository.GetByIdAsync(id);
-        if (sourcingRequest == null)
-            return null;
-
-        // Chỉ cho phép: Approved → Completed
-        if (sourcingRequest.Status != SourcingStatus.Approved)
-            throw new InvalidOperationException("Chỉ có thể convert request đang ở trạng thái Approved.");
-
-        // Validate SellingPrice
-        if (request.SellingPrice <= 0)
-            throw new ArgumentException("Giá bán phải lớn hơn 0.");
-
-        // ===== CREATE PRODUCT =====
-        var product = new Product
-        {
-            Title = sourcingRequest.Title,
-            Slug = await GenerateUniqueSlug(sourcingRequest.Title),
-            Description = sourcingRequest.Description ?? string.Empty,
-            BrandId = sourcingRequest.BrandId,
-            CategoryId = sourcingRequest.CategoryId,
-            Price = request.SellingPrice, // Giá bán ra, KHÔNG phải OfferedPrice
-            Condition = sourcingRequest.InspectedCondition ?? sourcingRequest.DeclaredCondition,
-            Size = sourcingRequest.Size,
-            Color = sourcingRequest.Color,
-            ImageUrls = sourcingRequest.ImageUrls, // REUSE ImageUrls, không upload lại
-            Status = ProductStatus.Available,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        await _productRepository.CreateAsync(product);
-
-        // ===== UPDATE SOURCING REQUEST =====
-        sourcingRequest.ProductId = product.Id;
-        sourcingRequest.Status = SourcingStatus.Completed;
-        sourcingRequest.CompletedAt = DateTime.UtcNow;
-        sourcingRequest.UpdatedAt = DateTime.UtcNow;
-
-        await _sourcingRepository.UpdateAsync(sourcingRequest);
-
-        return await MapToResponse(sourcingRequest);
+        await _operations.PublishResaleAsync(id, request.SellingPrice, actorId);
+        return await GetByIdAsync(id);
     }
 
     /// <summary>
@@ -385,6 +347,9 @@ public class SourcingService : ISourcingService
         var response = new SourcingResponse
         {
             Id = request.Id,
+            OfferVersion = request.OfferVersion, RequiresRevisedAcceptance = request.RequiresRevisedAcceptance,
+            AcceptedOfferPrice = request.AcceptedOfferPrice, InspectedBy = request.InspectedBy, InspectedAt = request.InspectedAt,
+            OfferHistory = request.OfferHistory, Payout = await _store.GetAsync<PurchasePayout>(request.Id),
             UserId = request.UserId,
             Title = request.Title,
             Description = request.Description,

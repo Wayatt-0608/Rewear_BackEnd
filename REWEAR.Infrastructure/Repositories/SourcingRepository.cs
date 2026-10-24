@@ -11,7 +11,7 @@ namespace REWEAR.Infrastructure.Repositories;
 /// </summary>
 public class SourcingRepository : ISourcingRepository
 {
-    private readonly IMongoCollection<SourcingRequest> _sourcingRequests;
+    private readonly TransactionalCollection<SourcingRequest> _sourcingRequests;
 
     public SourcingRepository(MongoDbContext context)
     {

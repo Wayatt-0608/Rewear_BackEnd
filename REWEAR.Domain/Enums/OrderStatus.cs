@@ -7,7 +7,7 @@ public enum OrderStatus
 {
     /// <summary>
     /// Đã tạo đơn và đang giữ chỗ sản phẩm, chờ khách thanh toán qua PayOS.
-    /// Có thời hạn 5 phút (DEV/TEST); quá hạn thì chuyển sang <see cref="PaymentExpired"/>.
+    /// Deadline được lưu trên order, mặc định 15 phút; quá hạn chuyển sang <see cref="PaymentExpired"/>.
     /// </summary>
     AwaitingPayment = 0,
 
@@ -23,14 +23,12 @@ public enum OrderStatus
     Shipping = 2,
 
     /// <summary>
-    /// Đã giao thành công. Đây là trạng thái cuối cho phép đánh giá (Task 11),
-    /// đồng thời là thời điểm sản phẩm được chốt Sold.
+    /// Đã giao thành công. Tồn đã được chốt ở bước thanh toán, không trừ lần nữa.
     /// </summary>
     Delivered = 3,
 
     /// <summary>
-    /// Người mua chủ động hủy đơn. Sản phẩm được trả về Available;
-    /// nếu đã thanh toán thì tiền được hoàn lại qua PayOS.
+    /// Hủy đơn chưa thu tiền, hoặc đã có xác nhận hoàn tiền thực tế trước giao hàng.
     /// </summary>
     Cancelled = 4,
 
@@ -42,7 +40,10 @@ public enum OrderStatus
 
     /// <summary>
     /// Giao hàng thất bại sau khi đã rời kho (shipper không giao được, khách từ chối nhận...).
-    /// Admin sẽ quyết định Reship (về Confirmed) hoặc hủy vĩnh viễn (về Cancelled).
+    /// Admin quyết định giao lại hoặc tiếp nhận/kiểm định hàng hoàn trước khi hoàn tiền.
     /// </summary>
-    Failed = 6
+    Failed = 6,
+    ReturnRequested = 7,
+    ReturnReceived = 8,
+    Returned = 9
 }

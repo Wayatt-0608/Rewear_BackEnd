@@ -12,6 +12,9 @@ public class PaymentGatewayConfig : IPaymentGatewayConfig
 
     public PaymentGatewayConfig(PayOsSettings payOsSettings)
     {
+        if (!Uri.TryCreate(payOsSettings.AppBaseUrl, UriKind.Absolute, out var frontend)
+            || (frontend.Scheme != "https" && !(frontend.Scheme == "http" && frontend.IsLoopback)))
+            throw new InvalidOperationException("PayOs:AppBaseUrl phải là URL frontend HTTPS (hoặc localhost khi phát triển).");
         _payOsSettings = payOsSettings;
     }
 
@@ -19,7 +22,5 @@ public class PaymentGatewayConfig : IPaymentGatewayConfig
     /// Base URL ứng dụng. Dùng cùng BaseUrl của PayOS làm mặc định khi phát triển
     /// cục bộ, vì khi đó PayOS chỉ cần trả về trang thanh toán chứ chưa gọi ngược lại.
     /// </summary>
-    public string AppBaseUrl => string.IsNullOrWhiteSpace(_payOsSettings.AppBaseUrl)
-        ? _payOsSettings.BaseUrl
-        : _payOsSettings.AppBaseUrl;
+    public string AppBaseUrl => _payOsSettings.AppBaseUrl;
 }

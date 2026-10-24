@@ -8,86 +8,35 @@ namespace REWEAR.Infrastructure.Persistence;
 public class MongoDbContext
 {
     private readonly IMongoDatabase _database;
+    private readonly IMongoClient _client;
+    private readonly AsyncLocal<IClientSessionHandle?> _session = new();
+
+    public async Task<T> ExecuteTransactionAsync<T>(Func<Task<T>> operation)
+    {
+        if (_session.Value != null) return await operation();
+        using var session = await _client.StartSessionAsync();
+        return await session.WithTransactionAsync(async (_, cancellationToken) =>
+        {
+            _session.Value = session;
+            try { return await operation(); }
+            finally { _session.Value = null; }
+        }, new TransactionOptions(readConcern: ReadConcern.Snapshot, writeConcern: WriteConcern.WMajority));
+    }
+
+    public TransactionalCollection<T> Collection<T>(string name) => new(_database.GetCollection<T>(name), () => _session.Value);
 
     public MongoDbContext(MongoDbSettings settings)
     {
-        var client = new MongoClient(settings.ConnectionString);
+        var client = _client = new MongoClient(settings.ConnectionString);
         _database = client.GetDatabase(settings.DatabaseName);
 
         EnsureIndexes();
-        MigrateLegacyDocuments();
+        // Financial and user documents are not rewritten automatically at startup.
     }
 
     /// <summary>
-    /// Backfill các field mới thêm sau cho document đã tồn tại trước đó.
-    /// MongoDB không tự gán default khi document thiếu field, nên sản phẩm tạo
-    /// trước khi thêm StockQuantity sẽ deserialize thành 0 và bị coi là hết hàng.
-    /// Các hàm dưới đây idempotent: chạy lại nhiều lần cũng không gây tác dụng phụ.
-    /// </summary>
-    private void MigrateLegacyDocuments()
-    {
-        try
-        {
-            // Product.stockQuantity: coi sản phẩm cũ (không có field) là còn 1 món,
-            // đúng với giả định "1 Product = 1 món vật lý" trước khi có tính năng này.
-            // Chỉ set khi field thực sự không tồn tại (Exists == false), KHÔNG đụng
-            // các sản phẩm đã bán hết (stockQuantity = 0) hoặc còn tồn (stockQuantity > 0).
-            _database.GetCollection<Product>("Products").UpdateMany(
-                Builders<Product>.Filter.Exists("stockQuantity", false),
-                Builders<Product>.Update.Set("stockQuantity", 1)
-            );
-
-            // User: 2 field (phoneNumber, birthDate) đã bị gỡ khỏi entity User ở
-            // commit "delete field", nhưng các document tạo trước đó vẫn còn field.
-            // MongoDB.Driver ném FormatException khi deserialize gặp field không
-            // có property tương ứng, khiến mọi API đọc user (đăng nhập, profile,
-            // admin list users) đều 500.
-            // Unset để dữ liệu khớp với code. Idempotent: chạy lại vẫn an toàn.
-            var users = _database.GetCollection<User>("Users");
-
-            users.UpdateMany(
-                Builders<User>.Filter.Or(
-                    Builders<User>.Filter.Exists("phoneNumber", true),
-                    Builders<User>.Filter.Exists("birthDate", true)
-                ),
-                Builders<User>.Update
-                    .Unset("phoneNumber")
-                    .Unset("birthDate")
-            );
-
-            // Payment: uniqify các bản ghi cũ có PayOsTransactionId null/"".
-            // Index unique cũ (không partial filter) đã chặn insert 2 doc cùng null
-            // → gây 500 khi checkout. Set GUID tạm để mỗi bản ghi có giá trị
-            // khác nhau; idempotent (chỉ set khi đang null/"").
-            var paymentsColl = _database.GetCollection<BsonDocument>("Payments");
-            var staleFilter = Builders<BsonDocument>.Filter.Or(
-                Builders<BsonDocument>.Filter.Exists("payosTransactionId", false),
-                Builders<BsonDocument>.Filter.Eq("payosTransactionId", BsonNull.Value),
-                Builders<BsonDocument>.Filter.Eq("payosTransactionId", "")
-            );
-            var stalePayments = paymentsColl.Find(staleFilter).ToList();
-            foreach (var doc in stalePayments)
-            {
-                paymentsColl.UpdateOne(
-                    Builders<BsonDocument>.Filter.Eq("_id", doc["_id"]),
-                    Builders<BsonDocument>.Update.Set("payosTransactionId", Guid.NewGuid().ToString())
-                );
-            }
-        }
-        catch (MongoConnectionException)
-        {
-            // Không kết nối được DB -> bỏ qua, không chặn app khởi động.
-        }
-        catch (MongoCommandException)
-        {
-            // Không đủ quyền ghi -> bỏ qua.
-        }
-    }
-
-    /// <summary>
-    /// Tạo các index cần thiết cho các collection.
-    /// - Carts: unique theo userId (1 user chỉ có 1 giỏ) + TTL index trên expiresAt
-    ///   để MongoDB tự động xóa giỏ hàng bị bỏ quên.
+    /// Retains baseline indexes only. No startup document cleanup or fabricated stock/financial data.
+    /// New commerce indexes are installed explicitly by CommerceSchemaMigration.
     /// </summary>
     private void EnsureIndexes()
     {
@@ -171,15 +120,7 @@ public class MongoDbContext
             // xung đột giữa các phiên chưa thanh toán (PayOsTransactionId = null).
             var paymentsColl = _database.GetCollection<Payment>("Payments");
 
-            // Drop index cũ nếu tồn tại (idempotent: lỗi nếu không có sẽ nuốt ở catch bên ngoài).
-            try
-            {
-                paymentsColl.Indexes.DropOne("ux_payments_payosTransactionId");
-            }
-            catch (MongoCommandException)
-            {
-                // Index chưa có hoặc đã đúng -> bỏ qua.
-            }
+            // Never drop existing indexes on startup. Use the versioned migration.
 
             paymentsColl.Indexes.CreateOne(
                 new CreateIndexModel<Payment>(
@@ -234,36 +175,36 @@ public class MongoDbContext
         }
     }
 
-    public IMongoCollection<Product> Products =>
-        _database.GetCollection<Product>("Products");
+    public TransactionalCollection<Product> Products =>
+        Collection<Product>("Products");
 
-    public IMongoCollection<User> Users =>
-        _database.GetCollection<User>("Users");
+    public TransactionalCollection<User> Users =>
+        Collection<User>("Users");
 
-    public IMongoCollection<Brand> Brands =>
-        _database.GetCollection<Brand>("Brands");
+    public TransactionalCollection<Brand> Brands =>
+        Collection<Brand>("Brands");
 
-    public IMongoCollection<Category> Categories =>
-        _database.GetCollection<Category>("Categories");
+    public TransactionalCollection<Category> Categories =>
+        Collection<Category>("Categories");
 
-    public IMongoCollection<Address> Addresses =>
-        _database.GetCollection<Address>("Addresses");
+    public TransactionalCollection<Address> Addresses =>
+        Collection<Address>("Addresses");
 
-    public IMongoCollection<Cart> Carts =>
-        _database.GetCollection<Cart>("Carts");
+    public TransactionalCollection<Cart> Carts =>
+        Collection<Cart>("Carts");
 
-    public IMongoCollection<Order> Orders =>
-        _database.GetCollection<Order>("Orders");
+    public TransactionalCollection<Order> Orders =>
+        Collection<Order>("Orders");
 
-    public IMongoCollection<OrderStatusHistory> OrderStatusHistories =>
-        _database.GetCollection<OrderStatusHistory>("OrderStatusHistories");
+    public TransactionalCollection<OrderStatusHistory> OrderStatusHistories =>
+        Collection<OrderStatusHistory>("OrderStatusHistories");
 
-    public IMongoCollection<Payment> Payments =>
-        _database.GetCollection<Payment>("Payments");
+    public TransactionalCollection<Payment> Payments =>
+        Collection<Payment>("Payments");
 
-    public IMongoCollection<Shipping> Shippings =>
-        _database.GetCollection<Shipping>("Shippings");
+    public TransactionalCollection<Shipping> Shippings =>
+        Collection<Shipping>("Shippings");
 
-    public IMongoCollection<SourcingRequest> SourcingRequests =>
-        _database.GetCollection<SourcingRequest>("SourcingRequests");
+    public TransactionalCollection<SourcingRequest> SourcingRequests =>
+        Collection<SourcingRequest>("SourcingRequests");
 }

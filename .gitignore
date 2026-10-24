@@ -51,3 +51,7 @@ ScaffoldingReadMe.txt
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local verification artifacts
+.artifacts/
+TestResults/

@@ -11,6 +11,7 @@ namespace REWEAR.API.Controllers;
 [ApiController]
 [Route("api/orders")]
 [Authorize]
+[TypeFilter(typeof(REWEAR.API.Filters.ObjectIdRouteFilter))]
 public class OrdersController : ControllerBase
 {
     private readonly IOrderService _orderService;

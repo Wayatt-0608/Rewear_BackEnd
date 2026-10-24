@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using REWEAR.Application.DTOs;
 using REWEAR.Application.Interfaces;
@@ -45,6 +46,7 @@ public class BrandsController : ControllerBase
     /// Tạo thương hiệu mới
     /// </summary>
     [HttpPost]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> Create([FromBody] CreateBrandRequest request)
     {
         try
@@ -66,6 +68,7 @@ public class BrandsController : ControllerBase
     /// Cập nhật thông tin thương hiệu
     /// </summary>
     [HttpPut("{id}")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateBrandRequest request)
     {
         try
@@ -93,6 +96,7 @@ public class BrandsController : ControllerBase
     /// Xóa thương hiệu (soft delete)
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> Delete(string id)
     {
         var result = await _brandService.DeleteAsync(id);
@@ -109,6 +113,7 @@ public class BrandsController : ControllerBase
     /// Khôi phục thương hiệu đã bị xóa
     /// </summary>
     [HttpPatch("{id}/restore")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> Restore(string id)
     {
         var brand = await _brandService.RestoreAsync(id);

@@ -8,6 +8,8 @@ namespace REWEAR.Application.Interfaces;
 /// </summary>
 public interface IOrderService
 {
+    // Call only behind StaffOrAdmin authorization; customer reads retain ownership checks.
+    Task<OrderResponse?> GetOperationalDetailAsync(string orderId);
     /// <summary>
     /// Tạo đơn hàng từ giỏ hàng hiện tại của người dùng (Task 5 Checkout).
     /// Đơn được tạo ở trạng thái AwaitingPayment, sản phẩm được giữ chỗ,
