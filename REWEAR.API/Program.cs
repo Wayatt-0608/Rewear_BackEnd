@@ -120,6 +120,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingRepository, So
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IVoucherRepository, VoucherRepository>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserVoucherRepository, UserVoucherRepository>();
 
+// ====== WISHLIST =====
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IWishlistRepository, WishlistRepository>();
+
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ILifecycleStore, LifecycleStore>();
 builder.Services.AddScoped<REWEAR.Application.Services.CircularFashionService>();
 builder.Services.AddScoped<REWEAR.Application.Services.ReturnService>();
@@ -140,6 +143,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.ISourcingService, REWEA
 // ====== TASK 10: VOUCHER ======
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IVoucherService, REWEAR.Application.Services.VoucherService>();
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserVoucherService, REWEAR.Application.Services.UserVoucherService>();
+
+// ====== WISHLIST =====
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IWishlistService, REWEAR.Application.Services.WishlistService>();
 
 // ====== PAYMENT (Task 8) ======
 // Use platform DNS and certificate validation; never pin changing gateway IPs.
