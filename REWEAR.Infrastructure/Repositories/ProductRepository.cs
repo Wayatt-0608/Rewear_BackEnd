@@ -30,6 +30,24 @@ public class ProductRepository : IProductRepository
         return await _products.Find(_ => true).ToListAsync();
     }
 
+    /// <summary>
+    /// Lấy nhiều sản phẩm theo danh sách Id trong 1 query (batch lookup, tránh N+1).
+    /// </summary>
+    public async Task<List<Product>> GetByIdsAsync(IEnumerable<string> ids)
+    {
+        var distinctIds = ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .ToList();
+
+        if (distinctIds.Count == 0)
+            return new List<Product>();
+
+        return await _products
+            .Find(Builders<Product>.Filter.In(p => p.Id, distinctIds))
+            .ToListAsync();
+    }
+
     public async Task<List<Product>> GetAllAsync(bool? isActive)
     {
         if (isActive == null)

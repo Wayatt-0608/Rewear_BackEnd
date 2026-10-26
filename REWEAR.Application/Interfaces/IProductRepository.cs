@@ -15,6 +15,11 @@ public interface IProductRepository
     Task<List<Product>> GetAllAsync();
 
     /// <summary>
+    /// Lấy nhiều sản phẩm theo danh sách Id trong 1 query (batch lookup, tránh N+1).
+    /// </summary>
+    Task<List<Product>> GetByIdsAsync(IEnumerable<string> ids);
+
+    /// <summary>
     /// Lấy tất cả sản phẩm với filter theo trạng thái IsActive.
     /// </summary>
     /// <param name="isActive">null = all, true = active only, false = inactive only</param>

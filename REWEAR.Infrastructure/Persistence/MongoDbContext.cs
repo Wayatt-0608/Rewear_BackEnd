@@ -225,6 +225,31 @@ public class MongoDbContext
                     new CreateIndexOptions { Name = "ix_userVouchers_voucherId" }
                 )
             );
+
+            // ====== WISHLIST =====
+            var wishlistItemsColl = _database.GetCollection<WishlistItem>("WishlistItems");
+
+            // 1 user chỉ lưu 1 product 1 lần.
+            // Unique compound index là hàng rào chống duplicate khi 2 request thêm chạy SONG SONG
+            // (request thua nhận MongoWriteException code 11000 và được service xử lý idempotent).
+            wishlistItemsColl.Indexes.CreateOne(
+                new CreateIndexModel<WishlistItem>(
+                    Builders<WishlistItem>.IndexKeys
+                        .Ascending(i => i.UserId)
+                        .Ascending(i => i.ProductId),
+                    new CreateIndexOptions { Unique = true, Name = "ux_wishlistItems_userId_productId" }
+                )
+            );
+
+            // Truy vấn danh sách wishlist của 1 user, sort mới nhất trước.
+            wishlistItemsColl.Indexes.CreateOne(
+                new CreateIndexModel<WishlistItem>(
+                    Builders<WishlistItem>.IndexKeys
+                        .Ascending(i => i.UserId)
+                        .Descending(i => i.CreatedAt),
+                    new CreateIndexOptions { Name = "ix_wishlistItems_userId_createdAt" }
+                )
+            );
         }
         catch (MongoWriteException)
         {
@@ -275,4 +300,8 @@ public class MongoDbContext
 
     public TransactionalCollection<UserVoucher> UserVouchers =>
         Collection<UserVoucher>("UserVouchers");
+
+    // ====== WISHLIST =====
+    public TransactionalCollection<WishlistItem> WishlistItems =>
+        Collection<WishlistItem>("WishlistItems");
 }
