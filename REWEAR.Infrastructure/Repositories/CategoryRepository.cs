@@ -37,6 +37,28 @@ public class CategoryRepository : ICategoryRepository
         return await _categories.Find(x => x.Id == id).FirstOrDefaultAsync();
     }
 
+    /// <summary>
+    /// Lấy nhiều danh mục theo danh sách Id trong 1 query (batch lookup, tránh N+1).
+    /// </summary>
+    public async Task<List<Category>> GetByIdsAsync(IEnumerable<string> ids)
+    {
+        // Category.Id được map với BsonRepresentation(ObjectId), nên id không phải
+        // ObjectId hợp lệ sẽ làm driver ném lỗi khi dựng filter. Bỏ qua các id
+        // không hợp lệ thay vì làm hỏng cả truy vấn.
+        var distinctIds = ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .Where(id => MongoDB.Bson.ObjectId.TryParse(id, out _))
+            .ToList();
+
+        if (distinctIds.Count == 0)
+            return new List<Category>();
+
+        return await _categories
+            .Find(Builders<Category>.Filter.In(c => c.Id, distinctIds))
+            .ToListAsync();
+    }
+
     public async Task<Category?> GetByNameAsync(string name)
     {
         return await _categories.Find(x => x.Name.ToLower() == name.ToLower()).FirstOrDefaultAsync();

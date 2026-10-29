@@ -28,7 +28,7 @@ namespace REWEAR.Tests;
 public partial class CommerceTests
 {
     internal const string HttpChecksum = "phase5-isolated-checksum-not-a-merchant-key";
-    private async Task<Phase5HttpHost> StartHttpAsync(ICloudinaryService? cloudinary = null)
+    private async Task<Phase5HttpHost> StartHttpAsync(ICloudinaryService? cloudinary = null, IStylingProfileRepository? stylingProfiles = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing", Args = Array.Empty<string>() });
         builder.Configuration.Sources.Clear(); builder.Configuration.AddInMemoryCollection(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -58,6 +58,7 @@ public partial class CommerceTests
         builder.Services.AddScoped<IOrderService, OrderService>(); builder.Services.AddScoped<IPaymentService, PaymentService>(); builder.Services.AddScoped<IShippingService, ShippingService>();
         builder.Services.AddScoped<IVoucherRepository, VoucherRepository>(); builder.Services.AddScoped<IUserVoucherRepository, UserVoucherRepository>();
         builder.Services.AddSingleton<IWishlistRepository>(Wishlists); builder.Services.AddSingleton<IWishlistService, WishlistService>();
+        builder.Services.AddSingleton<IStylingProfileRepository>(stylingProfiles ?? StylingProfiles); builder.Services.AddSingleton<IStylingProfileService, StylingProfileService>();
         builder.Services.AddScoped<IVoucherService, VoucherService>(); builder.Services.AddScoped<IUserVoucherService, UserVoucherService>();
         builder.Services.AddScoped<ISourcingService, SourcingService>(); builder.Services.AddScoped<CircularFashionService>(); builder.Services.AddScoped<ReturnService>();
         builder.Services.AddScoped<IProductService, ProductService>(); builder.Services.AddScoped<IBrandService, BrandService>(); builder.Services.AddScoped<ICategoryService, CategoryService>();

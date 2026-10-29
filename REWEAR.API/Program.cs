@@ -123,6 +123,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserVoucherRepository,
 // ====== WISHLIST =====
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IWishlistRepository, WishlistRepository>();
 
+// ====== STYLING PROFILE =====
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IStylingProfileRepository, StylingProfileRepository>();
+
 builder.Services.AddScoped<REWEAR.Application.Interfaces.ILifecycleStore, LifecycleStore>();
 builder.Services.AddScoped<REWEAR.Application.Services.CircularFashionService>();
 builder.Services.AddScoped<REWEAR.Application.Services.ReturnService>();
@@ -146,6 +149,9 @@ builder.Services.AddScoped<REWEAR.Application.Interfaces.IUserVoucherService, RE
 
 // ====== WISHLIST =====
 builder.Services.AddScoped<REWEAR.Application.Interfaces.IWishlistService, REWEAR.Application.Services.WishlistService>();
+
+// ====== STYLING PROFILE =====
+builder.Services.AddScoped<REWEAR.Application.Interfaces.IStylingProfileService, REWEAR.Application.Services.StylingProfileService>();
 
 // ====== PAYMENT (Task 8) ======
 // Use platform DNS and certificate validation; never pin changing gateway IPs.

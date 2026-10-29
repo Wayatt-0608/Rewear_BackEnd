@@ -250,6 +250,19 @@ public class MongoDbContext
                     new CreateIndexOptions { Name = "ix_wishlistItems_userId_createdAt" }
                 )
             );
+
+            // ====== STYLING PROFILE =====
+            var stylingProfilesColl = _database.GetCollection<StylingProfile>("StylingProfiles");
+
+            // 1 user chỉ có tối đa 1 hồ sơ sở thích thời trang.
+            // Unique index là hàng rào chống tạo trùng khi 2 request PUT chạy SONG SONG
+            // (request thua nhận MongoWriteException code 11000 và được service xử lý).
+            stylingProfilesColl.Indexes.CreateOne(
+                new CreateIndexModel<StylingProfile>(
+                    Builders<StylingProfile>.IndexKeys.Ascending(p => p.UserId),
+                    new CreateIndexOptions { Unique = true, Name = "ux_stylingProfiles_userId" }
+                )
+            );
         }
         catch (MongoWriteException)
         {
@@ -304,4 +317,8 @@ public class MongoDbContext
     // ====== WISHLIST =====
     public TransactionalCollection<WishlistItem> WishlistItems =>
         Collection<WishlistItem>("WishlistItems");
+
+    // ====== STYLING PROFILE =====
+    public TransactionalCollection<StylingProfile> StylingProfiles =>
+        Collection<StylingProfile>("StylingProfiles");
 }
