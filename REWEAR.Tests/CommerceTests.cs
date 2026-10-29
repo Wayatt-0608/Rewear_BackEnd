@@ -44,6 +44,8 @@ public partial class CommerceTests
     internal UserVoucherService UserVoucherService = null!;
     internal WishlistRepository Wishlists = null!;
     internal WishlistService WishlistService = null!;
+    internal StylingProfileRepository StylingProfiles = null!;
+    internal StylingProfileService StylingProfileService = null!;
     internal TestGateway Gateway = null!;
 
     [OneTimeSetUp]
@@ -80,6 +82,8 @@ public partial class CommerceTests
         UserVoucherService = new(new UserVoucherRepository(Context), new VoucherRepository(Context));
         Wishlists = new(Context);
         WishlistService = new(Wishlists, Products);
+        StylingProfiles = new(Context);
+        StylingProfileService = new(StylingProfiles, new CategoryRepository(Context));
         OrderService = new(Orders, Carts, Products, Addresses, History, Users, Transactions, new CommerceOptions(), Payments, ShippingService, VoucherService);
         Gateway = new TestGateway();
         PaymentService = new(Payments, Orders, History, Products, Gateway, Transactions, Carts, Shippings, new TestGatewayConfig(), NullLogger<PaymentService>.Instance, new LifecycleStore(Context), VoucherService);

@@ -24,6 +24,11 @@ public interface ICategoryRepository
     Task<Category?> GetByIdAsync(string id);
 
     /// <summary>
+    /// Lấy nhiều danh mục theo danh sách Id trong 1 query (batch lookup, tránh N+1).
+    /// </summary>
+    Task<List<Category>> GetByIdsAsync(IEnumerable<string> ids);
+
+    /// <summary>
     /// Lấy danh mục theo tên (case-insensitive).
     /// </summary>
     Task<Category?> GetByNameAsync(string name);
