@@ -10,5 +10,7 @@
     <PackageReference Include="MongoDB.Driver" Version="3.12.0" />
     <!-- Cùng thư viện REWEAR.Application dùng để hash mật khẩu (BCrypt.Net-Next 4.2.0) -->
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <!-- Cùng thư viện REWEAR.Infrastructure dùng để gửi email (MailKit) -->
+    <PackageReference Include="MailKit" Version="4.18.1" />
   </ItemGroup>
 </Project>

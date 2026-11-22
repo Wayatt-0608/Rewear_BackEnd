@@ -40,6 +40,30 @@ if (mode == "inventory")
     return;
 }
 
+if (mode == "otp")
+{
+    var email = args.Length > 2 ? args[2] : "";
+    if (string.IsNullOrWhiteSpace(email)) { Console.Error.WriteLine("Thieu email."); return; }
+    var users = db.GetCollection<BsonDocument>("Users");
+    var found = await users.Find(Builders<BsonDocument>.Filter.Eq("email", email)).FirstOrDefaultAsync();
+    if (found == null) { Console.WriteLine("Khong tim thay user: " + email); return; }
+
+    bool hasOtp = found.Contains("otpCode") && !found["otpCode"].IsBsonNull && !string.IsNullOrEmpty(found["otpCode"].AsString);
+    bool verified = found.Contains("isVerified") && !found["isVerified"].IsBsonNull && found["isVerified"].ToBoolean();
+    Console.WriteLine($"email       = {email}");
+    Console.WriteLine($"isVerified  = {verified}");
+    Console.WriteLine($"otpCode     = {(hasOtp ? "da luu (6 chu so)" : "khong co")}");
+    Console.WriteLine($"otpExpires  = {(found.Contains("otpExpiresAt") && !found["otpExpiresAt"].IsBsonNull ? found["otpExpiresAt"].ToString() : "(null)")}");
+    return;
+}
+
+if (mode == "smtp")
+{
+    if (args.Length < 3) { Console.Error.WriteLine("Thieu email nhan."); return; }
+    await SmtpCheck.RunAsync(args[2]);
+    return;
+}
+
 if (mode == "deleteuser")
 {
     var email = args.Length > 2 ? args[2] : "";
