@@ -17,6 +17,9 @@ namespace REWEAR.Domain.Entities;
 public class User
 {
     public int OtpAttempts { get; set; }
+    // Nullable fields preserve existing accounts; no data migration is required.
+    public DateTime? OtpIssuedAt { get; set; }
+    public string? OtpPurpose { get; set; }
     /// <summary>
     /// Khóa chính của người dùng.
     /// </summary>

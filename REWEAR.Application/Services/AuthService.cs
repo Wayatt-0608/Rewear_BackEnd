@@ -54,7 +54,7 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Xác nhận mật khẩu không được để trống." };
 
         // 2. Validate email format
-        if (!Regex.IsMatch(request.Email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+        if (!Regex.IsMatch(request.Email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
             return new AuthResponse { Success = false, Message = "Email không hợp lệ." };
 
         // 3. Validate password strength
@@ -66,9 +66,20 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Mật khẩu và xác nhận mật khẩu không khớp." };
 
         // 7. Kiểm tra email đã tồn tại
-        var existingUser = await _userRepository.GetByEmailAsync(request.Email.ToLower().Trim());
+        var existingUser = await _userRepository.GetByEmailAsync(request.Email.Trim().ToLowerInvariant());
         if (existingUser != null)
-            return new AuthResponse { Success = false, Message = "Email đã được sử dụng." };
+        {
+            if (existingUser.IsVerified)
+                return new AuthResponse { Success = false, Message = "Email đã được sử dụng." };
+            // Retrying a failed signup must not overwrite the existing password or privileged role.
+            if (!BCrypt.Net.BCrypt.Verify(request.Password, existingUser.PasswordHash))
+                return new AuthResponse
+                {
+                    Success = false, RequiresVerification = true,
+                    Message = "Tài khoản đang chờ xác thực. Hãy dùng mật khẩu đã đăng ký hoặc chức năng gửi lại OTP."
+                };
+            return await IssueOtpAsync(existingUser, "Registration");
+        }
 
         // ===== TẠO OTP =====
         string otpCode = GenerateOtpCode();
@@ -80,11 +91,13 @@ public class AuthService : IAuthService
         var user = new User
         {
             FullName = request.FullName,
-            Email = request.Email.ToLower().Trim(),
+            Email = request.Email.Trim().ToLowerInvariant(),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             IsVerified = false,  // Chưa xác thực
             OtpCode = otpCode,
             OtpExpiresAt = otpExpiry,
+            OtpIssuedAt = DateTime.UtcNow,
+            OtpPurpose = "Registration",
             Role = userRole,  // Tự động set theo logic: null/rỗng/invalid → Member
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -93,32 +106,76 @@ public class AuthService : IAuthService
         // ===== LƯU USER =====
         await _userRepository.CreateAsync(user);
 
-        // ===== GỬI EMAIL OTP =====
-        bool emailSent = await _emailService.SendOtpEmailAsync(user.Email, otpCode, user.FullName);
+        return await SendRegistrationOtpAsync(user);
+    }
 
-        if (!emailSent)
-        {
-            // Email gửi thất bại - vẫn tạo user nhưng báo cho user biết
+    /// <summary>Resend registration OTP without modifying the pending account's password or role.</summary>
+    public async Task<AuthResponse> ResendOtpAsync(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email)
+            || !Regex.IsMatch(email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            return new AuthResponse { Success = false, Message = "Email không hợp lệ." };
+
+        var user = await _userRepository.GetByEmailAsync(email.Trim().ToLowerInvariant());
+        if (user == null || user.IsVerified)
+            return new AuthResponse { Success = true, Message = "Nếu tài khoản đang chờ xác thực, mã OTP sẽ được gửi." };
+
+        return await IssueOtpAsync(user, "Registration");
+    }
+
+    private async Task<AuthResponse> IssueOtpAsync(User user, string purpose)
+    {
+        var now = DateTime.UtcNow;
+        if (user.OtpIssuedAt is DateTime issuedAt && issuedAt.AddSeconds(60) > now)
             return new AuthResponse
             {
-                Success = false,
-                Message = $"Đăng ký không thành công! Không thể gửi mã OTP đến email {user.Email}. Vui lòng kiểm tra lại email.",
-                UserId = user.Id,
-                Email = user.Email,
-                FullName = user.FullName,
-                RequiresVerification = true
+                Success = false, ErrorCode = "OTP_RESEND_COOLDOWN",
+                Message = "Vui lòng chờ trước khi yêu cầu mã OTP mới.",
+                RequiresVerification = purpose == "Registration" ? true : null,
+                RetryAfterSeconds = Math.Max(1, (int)Math.Ceiling((issuedAt.AddSeconds(60) - now).TotalSeconds))
             };
-        }
 
+        var otp = GenerateOtpCode();
+        var expiresAt = now.AddMinutes(OTP_EXPIRY_MINUTES);
+        // One atomic, field-scoped write prevents concurrent resends and never overwrites role/password/profile.
+        if (!await _userRepository.TryIssueOtpAsync(user, otp, expiresAt, purpose, now))
+            return new AuthResponse
+            {
+                Success = false, ErrorCode = "OTP_REQUEST_CHANGED",
+                Message = "Yêu cầu xác thực vừa thay đổi. Vui lòng thử lại sau.",
+                RequiresVerification = purpose == "Registration" ? true : null
+            };
+        user.OtpCode = otp;
+        user.OtpExpiresAt = expiresAt;
+        user.OtpIssuedAt = now;
+        user.OtpPurpose = purpose;
+        user.OtpAttempts = 0;
+
+        if (purpose == "Registration") return await SendRegistrationOtpAsync(user);
+        bool sent = await _emailService.SendOtpEmailAsync(user.Email, otp, user.FullName);
         return new AuthResponse
         {
-            Success = true,
-            Message = $"Đăng ký thành công! Mã OTP đã được gửi đến email {user.Email}.",
+            Success = sent,
+            ErrorCode = sent ? null : "EMAIL_DELIVERY_FAILED",
+            Message = sent ? "Mã OTP đã được gửi." : "Chưa gửi được mã OTP. Vui lòng thử lại sau một phút."
+        };
+    }
+
+    private async Task<AuthResponse> SendRegistrationOtpAsync(User user)
+    {
+        bool sent = await _emailService.SendOtpEmailAsync(user.Email, user.OtpCode!, user.FullName);
+        return new AuthResponse
+        {
+            Success = sent,
+            Message = sent
+                ? "Mã OTP đã được gửi. Vui lòng xác thực để hoàn tất đăng ký."
+                : "Tài khoản đang chờ xác thực nhưng chưa gửi được OTP. Vui lòng thử đăng ký lại hoặc gửi lại OTP sau một phút.",
+            ErrorCode = sent ? null : "EMAIL_DELIVERY_FAILED",
+            RequiresVerification = true,
             UserId = user.Id,
             Email = user.Email,
             FullName = user.FullName,
-            Role = user.Role.ToString(),
-            RequiresVerification = true
+            Role = user.Role.ToString()
         };
     }
 
@@ -137,13 +194,16 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Mã OTP không được để trống." };
 
         // Tìm user
-        var user = await _userRepository.GetByEmailAsync(request.Email.ToLower().Trim());
+        var user = await _userRepository.GetByEmailAsync(request.Email.Trim().ToLowerInvariant());
         if (user == null)
             return new AuthResponse { Success = false, Message = "Không tìm thấy tài khoản với email này." };
 
         // Kiểm tra đã verify chưa
         if (user.IsVerified)
             return new AuthResponse { Success = false, Message = "Tài khoản đã được xác thực trước đó." };
+
+        if (user.OtpPurpose != null && user.OtpPurpose != "Registration")
+            return new AuthResponse { Success = false, Message = "Mã OTP này không dùng để kích hoạt tài khoản." };
 
         // Kiểm tra OTP có không
         if (string.IsNullOrEmpty(user.OtpCode))
@@ -160,6 +220,7 @@ public class AuthService : IAuthService
 
         // ===== XÁC THỰC THÀNH CÔNG =====
         user.IsVerified = true;
+        user.OtpPurpose = null;
         user.OtpCode = null;  // Xóa OTP sau khi sử dụng
         user.OtpExpiresAt = null;
         user.UpdatedAt = DateTime.UtcNow;
@@ -195,7 +256,7 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Mật khẩu không được để trống." };
 
         // Tìm user
-        var user = await _userRepository.GetByEmailAsync(request.Email.ToLower().Trim());
+        var user = await _userRepository.GetByEmailAsync(request.Email.Trim().ToLowerInvariant());
         if (user == null)
             return new AuthResponse { Success = false, Message = "Email hoặc mật khẩu không chính xác." };
 
@@ -236,7 +297,7 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Email không được để trống." };
 
         // Tìm user
-        var user = await _userRepository.GetByEmailAsync(email.ToLower().Trim());
+        var user = await _userRepository.GetByEmailAsync(email.Trim().ToLowerInvariant());
         if (user == null)
         {
             // Không tiết lộ email có tồn tại hay không
@@ -247,31 +308,7 @@ public class AuthService : IAuthService
             };
         }
 
-        // Tạo OTP mới
-        string otpCode = GenerateOtpCode();
-        user.OtpCode = otpCode;
-        user.OtpAttempts = 0;
-        user.OtpExpiresAt = DateTime.UtcNow.AddMinutes(OTP_EXPIRY_MINUTES);
-        user.UpdatedAt = DateTime.UtcNow;
-        await _userRepository.UpdateAsync(user);
-
-        // Gửi email OTP
-        bool emailSent = await _emailService.SendOtpEmailAsync(user.Email, otpCode, user.FullName);
-
-        if (!emailSent)
-        {
-            return new AuthResponse
-            {
-                Success = false,
-                Message = "Không thể gửi mã OTP. Vui lòng thử lại sau."
-            };
-        }
-
-        return new AuthResponse
-        {
-            Success = true,
-            Message = $"Mã OTP đã được gửi đến email {user.Email}."
-        };
+        return await IssueOtpAsync(user, "PasswordReset");
     }
 
     /// <summary>
@@ -302,9 +339,12 @@ public class AuthService : IAuthService
             return new AuthResponse { Success = false, Message = "Mật khẩu và xác nhận mật khẩu không khớp." };
 
         // Tìm user
-        var user = await _userRepository.GetByEmailAsync(request.Email.ToLower().Trim());
+        var user = await _userRepository.GetByEmailAsync(request.Email.Trim().ToLowerInvariant());
         if (user == null)
             return new AuthResponse { Success = false, Message = "Không tìm thấy tài khoản với email này." };
+
+        if (user.OtpPurpose != null && user.OtpPurpose != "PasswordReset")
+            return new AuthResponse { Success = false, Message = "Vui lòng yêu cầu mã OTP đặt lại mật khẩu." };
 
         // Kiểm tra OTP
         if (string.IsNullOrEmpty(user.OtpCode))
@@ -325,6 +365,7 @@ public class AuthService : IAuthService
 
         // Đặt lại mật khẩu
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.OtpPurpose = null;
         user.OtpCode = null;
         user.OtpExpiresAt = null;
         user.UpdatedAt = DateTime.UtcNow;

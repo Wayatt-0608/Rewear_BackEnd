@@ -1,81 +1,148 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MimeKit;
 using MailKit.Net.Smtp;
+using MailKit.Security;
 using REWEAR.Application.Interfaces;
 
 namespace REWEAR.Infrastructure.Services;
 
-/// <summary>
-/// Service gui email OTP voi HTML template dep.
-/// Dung MailKit de gui email that qua SMTP.
-/// </summary>
+/// <summary>Sends OTP using SMTP locally or the Brevo HTTPS API on Render Free.</summary>
 public class EmailService : IEmailService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<EmailService> _logger;
+    private readonly HttpClient _httpClient;
 
-    public EmailService(IConfiguration configuration, ILogger<EmailService> logger)
+    public EmailService(IConfiguration configuration, ILogger<EmailService> logger, HttpClient httpClient)
     {
         _configuration = configuration;
         _logger = logger;
+        _httpClient = httpClient;
     }
 
     public async Task<bool> SendOtpEmailAsync(string toEmail, string otpCode, string fullName)
     {
+        var settings = _configuration.GetSection("EmailSettings");
+        var configuredProvider = (settings["Provider"] ?? "Auto").Trim();
+        var apiKey = settings["BrevoApiKey"]?.Trim();
+        var provider = configuredProvider;
+        if (provider.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+        {
+            // Render Free blocks SMTP. Never silently fall back to it after an API failure.
+            bool render = string.Equals(_configuration["RENDER"], "true", StringComparison.OrdinalIgnoreCase)
+                || !string.IsNullOrWhiteSpace(_configuration["RENDER_SERVICE_ID"]);
+            provider = !string.IsNullOrWhiteSpace(apiKey) || render ? "Brevo" : "Smtp";
+        }
+        if (!provider.Equals("Brevo", StringComparison.OrdinalIgnoreCase)
+            && !provider.Equals("Smtp", StringComparison.OrdinalIgnoreCase))
+            return Failed("Unknown", "Configuration", "INVALID_PROVIDER");
+
+        provider = provider.Equals("Brevo", StringComparison.OrdinalIgnoreCase) ? "Brevo" : "Smtp";
+        if (provider == "Brevo" && string.IsNullOrWhiteSpace(apiKey))
+            return Failed(provider, "Configuration", "MISSING_API_KEY");
+        if (string.IsNullOrWhiteSpace(settings["FromEmail"]) || string.IsNullOrWhiteSpace(toEmail)
+            || !MailboxAddress.TryParse(settings["FromEmail"], out var sender)
+            || !MailboxAddress.TryParse(toEmail, out var recipient)
+            || !sender.Address.Contains('@') || !recipient.Address.Contains('@'))
+            return Failed(provider, "Configuration", "INVALID_EMAIL_ADDRESS");
+
+        var fromName = settings["FromName"]?.Trim();
+        if (string.IsNullOrWhiteSpace(fromName)) fromName = "REWEAR";
+        const string subject = "Mã xác thực REWEAR - OTP Code";
+        var htmlBody = BuildOtpEmailTemplate(fullName, otpCode);
+        var textBody = $"Mã OTP của bạn là: {otpCode} (có hiệu lực trong 5 phút)";
+        var stage = "Connect";
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
         try
         {
-            var emailSettings = _configuration.GetSection("EmailSettings");
-            
-            string subject = "Mã xác thực REWEAR - OTP Code";
-            string htmlBody = BuildOtpEmailTemplate(fullName, otpCode);
-
-            // ===== GUI EMAIL THAT BANG MAILKIT =====
-            var message = new MimeMessage();
-            message.From.Add(new MailboxAddress(
-                "REWEAR",
-                emailSettings["FromEmail"] ?? ""
-            ));
-            message.To.Add(new MailboxAddress(fullName, toEmail));
-            message.Subject = subject;
-            
-            var bodyBuilder = new BodyBuilder
+            if (provider == "Brevo")
             {
-                HtmlBody = htmlBody,
-                TextBody = $"Mã OTP của bạn là: {otpCode} (có hiệu lực trong 5 phút)"
-            };
-            message.Body = bodyBuilder.ToMessageBody();
+                stage = "Send";
+                using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
+                request.Headers.Add("api-key", apiKey!);
+                request.Content = JsonContent.Create(new
+                {
+                    sender = new { email = sender.Address, name = fromName },
+                    to = new[] { new { email = recipient.Address } },
+                    subject,
+                    htmlContent = htmlBody,
+                    textContent = textBody
+                });
+                using var response = await _httpClient.SendAsync(request, deadline.Token);
+                // Do not log provider response bodies: they can contain addresses or message content.
+                if (response.StatusCode != HttpStatusCode.Created)
+                    return Failed(provider, stage, $"HTTP_{(int)response.StatusCode}");
+                using var json = await JsonDocument.ParseAsync(
+                    await response.Content.ReadAsStreamAsync(deadline.Token), cancellationToken: deadline.Token);
+                if (json.RootElement.ValueKind != JsonValueKind.Object
+                    || !json.RootElement.TryGetProperty("messageId", out var messageId)
+                    || messageId.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(messageId.GetString()))
+                    return Failed(provider, stage, "INVALID_RESPONSE");
+            }
+            else
+            {
+                var host = settings["SmtpHost"]?.Trim();
+                if (string.IsNullOrWhiteSpace(host)
+                    || !int.TryParse(settings["SmtpPort"] ?? "587", out var port)
+                    || port is < 1 or > 65535
+                    || string.IsNullOrWhiteSpace(settings["FromPassword"]))
+                    return Failed(provider, "Configuration", "MISSING_SMTP_CONFIGURATION");
 
-            using var client = new SmtpClient();
-            
-            await client.ConnectAsync(
-                emailSettings["SmtpHost"] ?? "",
-                int.Parse(emailSettings["SmtpPort"] ?? "587"),
-                MailKit.Security.SecureSocketOptions.StartTls
-            );
+                var password = settings["FromPassword"]!;
+                var security = settings["SmtpSecurity"]?.Trim() ?? "Auto";
+                var tls = security.ToLowerInvariant() switch
+                {
+                    "auto" => port == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls,
+                    "starttls" => SecureSocketOptions.StartTls,
+                    "sslonconnect" => SecureSocketOptions.SslOnConnect,
+                    _ => SecureSocketOptions.None
+                };
+                if (tls == SecureSocketOptions.None)
+                    return Failed(provider, "Configuration", "INVALID_SMTP_SECURITY");
 
-            await client.AuthenticateAsync(
-                emailSettings["FromEmail"] ?? "",
-                emailSettings["FromPassword"] ?? ""
-            );
+                var message = new MimeMessage();
+                message.From.Add(new MailboxAddress(fromName, sender.Address));
+                message.To.Add(new MailboxAddress(fullName, recipient.Address));
+                message.Subject = subject;
+                message.Body = new BodyBuilder { HtmlBody = htmlBody, TextBody = textBody }.ToMessageBody();
 
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+                using var client = new SmtpClient { Timeout = 15000 };
+                await client.ConnectAsync(host, port, tls, deadline.Token);
+                stage = "Authenticate";
+                await client.AuthenticateAsync(settings["SmtpUsername"] ?? sender.Address,
+                    password, deadline.Token);
+                stage = "Send";
+                await client.SendAsync(message, deadline.Token);
+                // Once SMTP accepts the message, a failed QUIT must not report delivery failure.
+                try { await client.DisconnectAsync(true, deadline.Token); }
+                catch (Exception) { _logger.LogWarning("Email SMTP disconnect failed after message acceptance."); }
+            }
 
-            _logger.LogInformation("Đã gửi email xác thực; không ghi OTP hoặc địa chỉ email vào log.");
-
-            return await Task.FromResult(true);
+            _logger.LogInformation("Email accepted by provider {Provider}.", provider);
+            return true;
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Không gửi được email xác thực ({Type}).", ex.GetType().Name);
-            return false;
-        }
+        catch (OperationCanceledException) { return Failed(provider, stage, "TIMEOUT"); }
+        catch (SmtpCommandException ex) { return Failed(provider, stage, $"SMTP_{(int)ex.StatusCode}"); }
+        catch (Exception ex) { return Failed(provider, stage, ex.GetType().Name); }
+    }
+
+    private bool Failed(string provider, string stage, string code)
+    {
+        // Only bounded diagnostic metadata. Never log OTP, recipients, credentials or exception messages.
+        _logger.LogWarning("Email delivery failed. Provider={Provider}, Stage={Stage}, Code={Code}.", provider, stage, code);
+        return false;
     }
 
     private string BuildOtpEmailTemplate(string fullName, string otpCode)
     {
-        // HTML Template voi Unicode tieng Viet - can giua, chu to, dep mat
+        fullName = WebUtility.HtmlEncode(fullName);
+        // Encode user-controlled content before inserting it into HTML.
         return $@"
 <!DOCTYPE html>
 <html lang=""vi"">
