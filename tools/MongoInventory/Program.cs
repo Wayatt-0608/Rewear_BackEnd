@@ -102,6 +102,12 @@ if (mode == "seed")
     return;
 }
 
+if (mode == "fullseed")
+{
+    await FullSeed.RunAsync(db);
+    return;
+}
+
 if (mode != "wipe") { Console.Error.WriteLine($"Unknown mode: {mode}"); return; }
 
 // ====== WIPE ======

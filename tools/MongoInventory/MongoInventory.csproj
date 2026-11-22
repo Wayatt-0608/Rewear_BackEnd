@@ -7,7 +7,12 @@
     <RootNamespace>MongoInventory</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\REWEAR.Domain\REWEAR.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CloudinaryDotNet" Version="1.27.1" />
     <PackageReference Include="MongoDB.Driver" Version="3.12.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <!-- Cùng thư viện REWEAR.Application dùng để hash mật khẩu (BCrypt.Net-Next 4.2.0) -->
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <!-- Cùng thư viện REWEAR.Infrastructure dùng để gửi email (MailKit) -->
