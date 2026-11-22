@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using REWEAR.Application.DTOs;
@@ -6,8 +5,9 @@ using REWEAR.Application.Interfaces;
 
 namespace REWEAR.API.Controllers;
 
+// Rate limit cho nhóm route xác thực được áp bằng AuthRateLimiterMiddleware
+// (đọc email trong body để chia quota theo tài khoản, không chỉ theo IP).
 [ApiController]
-[EnableRateLimiting("auth")]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {

@@ -10,22 +10,14 @@ using REWEAR.Infrastructure.Persistence;
 using REWEAR.Infrastructure.Repositories;
 using REWEAR.API.Middleware;
 using System.Net;
-using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.RateLimiting;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 // TLS certificates are verified by the platform. Never disable validation.
 var builder = WebApplication.CreateBuilder(args);
-// Allow the deployed REWEAR frontend to call this API from the browser.
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
-        (context.Connection.RemoteIpAddress?.ToString() ?? "unknown") + context.Request.Path,
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
-});
+// Rate limit nhóm route xác thực: chia quota theo IP + route + email để một người
+// không khóa nhầm những người khác dùng chung IP công cộng. Xem AuthRateLimiterMiddleware.
 
 
 // Đọc cấu hình MongoDB từ appsettings.json
@@ -329,9 +321,12 @@ if (app.Environment.IsDevelopment())
 // CORS phải đặt TRƯỚC UseAuthentication để preflight OPTIONS không bị middleware auth chặn.
 app.UseCors("AllowFrontend");
 
+// Rate limit route xác thực. Phải chạy TRƯỚC UseAuthentication/UseAuthorization
+// để chặn sớm, và đọc được request body (email) để tách quota theo tài khoản.
+app.UseMiddleware<AuthRateLimiterMiddleware>();
+
 app.UseAuthentication();  // JWT Authentication
 app.UseRoleChecking();   // Role checking (log + chặn admin API cho non-Admin)
-app.UseRateLimiter();
 app.UseAuthorization();  // Authorization Policies
 app.MapControllers();
 
