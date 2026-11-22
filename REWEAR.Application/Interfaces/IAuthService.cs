@@ -12,6 +12,7 @@ public interface IAuthService
     /// Đăng ký tài khoản mới và gửi OTP qua email.
     /// </summary>
     Task<AuthResponse> RegisterAsync(RegisterRequest request);
+    Task<AuthResponse> ResendOtpAsync(string email);
 
     /// <summary>
     /// Kích hoạt tài khoản bằng mã OTP.

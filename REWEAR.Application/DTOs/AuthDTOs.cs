@@ -20,8 +20,14 @@ public class RegisterRequest
 }
 
 /// <summary>
-/// DTO cho yêu cầu kích hoạt tài khoản bằng OTP.
+/// DTO cho yêu cầu gửi lại OTP đăng ký.
 /// </summary>
+public class ResendOtpRequest
+{
+    public string Email { get; set; } = string.Empty;
+}
+
+/// <summary>Request to verify an account's email.</summary>
 public class VerifyOtpRequest
 {
     public string Email { get; set; } = string.Empty;
@@ -43,6 +49,8 @@ public class LoginRequest
 public class AuthResponse
 {
     public bool Success { get; set; }
+    public string? ErrorCode { get; set; }
+    public int? RetryAfterSeconds { get; set; }
     public string? Message { get; set; }
     public string? UserId { get; set; }
     public string? Email { get; set; }

@@ -43,6 +43,19 @@ public class UserRepository : IUserRepository
         await _users.ReplaceOneAsync(x => x.Id == user.Id, user);
     }
 
+    public async Task<bool> TryIssueOtpAsync(User expected, string otp, DateTime expiresAt, string purpose, DateTime issuedAt)
+    {
+        var f = Builders<User>.Filter;
+        var filter = f.Eq(u => u.Id, expected.Id)
+            & f.Eq(u => u.IsVerified, expected.IsVerified)
+            & f.Eq(u => u.OtpCode, expected.OtpCode)
+            & (f.Eq(u => u.OtpIssuedAt, null) | f.Lte(u => u.OtpIssuedAt, issuedAt.AddSeconds(-60)));
+        var update = Builders<User>.Update.Set(u => u.OtpCode, otp)
+            .Set(u => u.OtpExpiresAt, expiresAt).Set(u => u.OtpIssuedAt, issuedAt)
+            .Set(u => u.OtpPurpose, purpose).Set(u => u.OtpAttempts, 0).Set(u => u.UpdatedAt, issuedAt);
+        return (await _users.UpdateOneAsync(filter, update)).ModifiedCount == 1;
+    }
+
     public async Task DeleteAsync(string id)
     {
         await _users.DeleteOneAsync(x => x.Id == id);

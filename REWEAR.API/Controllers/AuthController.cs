@@ -26,12 +26,26 @@ public class AuthController : ControllerBase
     {
         var result = await _authService.RegisterAsync(request);
         
-        if (!result.Success)
-        {
-            return BadRequest(result);
-        }
+        return ToResult(result);
+    }
 
-        return Ok(result);
+    /// <summary>Gửi lại OTP cho tài khoản chưa xác thực; tối đa một lần mỗi phút theo tài khoản.</summary>
+    [HttpPost("resend-otp")]
+    public async Task<IActionResult> ResendOtp([FromBody] ResendOtpRequest request)
+        => ToResult(await _authService.ResendOtpAsync(request.Email));
+
+    private IActionResult ToResult(AuthResponse result)
+    {
+        if (result.Success) return Ok(result);
+        if (result.RetryAfterSeconds is int retry && ControllerContext.HttpContext != null)
+            Response.Headers.RetryAfter = retry.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return result.ErrorCode switch
+        {
+            "EMAIL_DELIVERY_FAILED" => StatusCode(StatusCodes.Status503ServiceUnavailable, result),
+            "OTP_RESEND_COOLDOWN" => StatusCode(StatusCodes.Status429TooManyRequests, result),
+            "OTP_REQUEST_CHANGED" => Conflict(result),
+            _ => BadRequest(result)
+        };
     }
 
     /// <summary>
@@ -42,12 +56,7 @@ public class AuthController : ControllerBase
     {
         var result = await _authService.VerifyOtpAsync(request);
         
-        if (!result.Success)
-        {
-            return BadRequest(result);
-        }
-
-        return Ok(result);
+        return ToResult(result);
     }
 
     /// <summary>
@@ -74,8 +83,7 @@ public class AuthController : ControllerBase
     {
         var result = await _authService.ForgotPasswordAsync(request.Email);
         
-        // Luôn trả về success để tránh tiết lộ email có tồn tại hay không
-        return Ok(result);
+        return ToResult(result);
     }
 
     /// <summary>
@@ -86,12 +94,7 @@ public class AuthController : ControllerBase
     {
         var result = await _authService.ResetPasswordAsync(request);
         
-        if (!result.Success)
-        {
-            return BadRequest(result);
-        }
-
-        return Ok(result);
+        return ToResult(result);
     }
 
     /// <summary>

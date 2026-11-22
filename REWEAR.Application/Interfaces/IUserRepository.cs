@@ -12,5 +12,6 @@ public interface IUserRepository
     Task<List<User>> GetAllAsync();
     Task CreateAsync(User user);
     Task UpdateAsync(User user);
+    Task<bool> TryIssueOtpAsync(User expected, string otp, DateTime expiresAt, string purpose, DateTime issuedAt);
     Task DeleteAsync(string id);
 }
